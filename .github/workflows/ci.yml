@@ -17,22 +17,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm run test:coverage
-      - run: npm run build
-      - run: npm run openapi:emit
-      - run: npm run metadata:validate
-      - uses: actions/upload-artifact@v4
-        with:
-          name: openapi
-          path: openapi.json
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+      - run: pytest
 
   container:
     runs-on: ubuntu-latest
@@ -44,23 +37,18 @@ jobs:
           context: .
           load: true
           push: false
-          tags: agent-tool-server-template:test
+          tags: agent-tool-server-vision:test
       - name: Smoke test
         run: |
           set -euo pipefail
-          API_KEY='ci-only-key-0000000000000000000000000000000000000000000000000000'
-          docker run --rm -d --name tool-server -p 8080:8080 \
-            -e API_KEYS="$API_KEY" agent-tool-server-template:test
-          trap 'docker logs tool-server; docker stop tool-server' EXIT
-          for attempt in {1..30}; do
+          docker run --rm -d --name vision-server -p 8080:8080 agent-tool-server-vision:test
+          trap 'docker logs vision-server; docker stop vision-server' EXIT
+          for attempt in {1..60}; do
             curl --fail --silent http://127.0.0.1:8080/health && break
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:8080/version
-          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            http://127.0.0.1:8080/tools)" = 401
-          curl --fail --silent -H "x-api-key: $API_KEY" http://127.0.0.1:8080/tools
-          test "$(docker inspect --format '{{.Config.User}}' tool-server)" = node
+          curl --fail --silent http://127.0.0.1:8080/openapi.json
+          test "$(docker inspect --format '{{.Config.User}}' vision-server)" = vision
 
   bicep:
     runs-on: ubuntu-latest
@@ -73,3 +61,4 @@ jobs:
           az bicep build --file infra/main.bicep
           az bicep lint --file infra/main.bicep
           az bicep build-params --file infra/parameters/dev.bicepparam
+
