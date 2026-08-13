@@ -96,7 +96,9 @@ def _top(fragment: OcrFragment) -> float:
     return min((point[1] for point in fragment.points), default=0)
 
 
-def _bounding_box(fragment: OcrFragment) -> BoundingBox:
+def _bounding_box(fragment: OcrFragment) -> BoundingBox | None:
+    if not fragment.points:
+        return None
     xs = [point[0] for point in fragment.points]
     ys = [point[1] for point in fragment.points]
     left, top = min(xs), min(ys)

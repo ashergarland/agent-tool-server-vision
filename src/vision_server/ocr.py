@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Protocol
 
 from PIL import Image
@@ -27,10 +28,23 @@ class PaddleOcrEngine:
 
     def __init__(self) -> None:
         self._engines: dict[str, Any] = {}
+        self._engines_lock = Lock()
 
     def extract(self, image: Image.Image, language: str) -> list[OcrFragment]:
-        engine = self._engines.get(language)
-        if engine is None:
+        engine = self._get_engine(language)
+
+        import numpy
+
+        pixels = numpy.asarray(image)
+        if hasattr(engine, "predict"):
+            return _parse_modern_results(engine.predict(pixels))
+        return _parse_legacy_results(engine.ocr(pixels))
+
+    def _get_engine(self, language: str) -> Any:
+        with self._engines_lock:
+            engine = self._engines.get(language)
+            if engine is not None:
+                return engine
             try:
                 from paddleocr import PaddleOCR  # type: ignore[import-not-found]
             except ImportError as exc:
@@ -39,13 +53,7 @@ class PaddleOcrEngine:
                 ) from exc
             engine = PaddleOCR(lang=language, use_doc_orientation_classify=False)
             self._engines[language] = engine
-
-        import numpy
-
-        pixels = numpy.asarray(image)
-        if hasattr(engine, "predict"):
-            return _parse_modern_results(engine.predict(pixels))
-        return _parse_legacy_results(engine.ocr(pixels))
+            return engine
 
 
 def _parse_modern_results(results: Iterable[Any]) -> list[OcrFragment]:
@@ -65,9 +73,12 @@ def _parse_modern_results(results: Iterable[Any]) -> list[OcrFragment]:
         if not (_is_sequence(texts) and _is_sequence(scores) and _is_sequence(polygons)):
             continue
         for text, score, polygon in zip(texts, scores, polygons, strict=False):
+            confidence = _confidence(score)
+            if confidence is None:
+                continue
             points = _points(polygon)
             if text and points:
-                fragments.append(OcrFragment(str(text), float(score), points))
+                fragments.append(OcrFragment(str(text), confidence, points))
     return fragments
 
 
@@ -84,9 +95,12 @@ def _parse_legacy_results(results: Any) -> list[OcrFragment]:
             if not _is_sequence(recognition) or len(recognition) != 2:
                 continue
             text, score = recognition
+            confidence = _confidence(score)
+            if confidence is None:
+                continue
             points = _points(polygon)
             if text and points:
-                fragments.append(OcrFragment(str(text), float(score), points))
+                fragments.append(OcrFragment(str(text), confidence, points))
     return fragments
 
 
@@ -97,8 +111,18 @@ def _points(value: Any) -> tuple[tuple[float, float], ...]:
     for point in value:
         if not _is_sequence(point) or len(point) < 2:
             return ()
-        points.append((float(point[0]), float(point[1])))
+        try:
+            points.append((float(point[0]), float(point[1])))
+        except (TypeError, ValueError):
+            return ()
     return tuple(points)
+
+
+def _confidence(score: Any) -> float | None:
+    try:
+        return float(score)
+    except (TypeError, ValueError):
+        return None
 
 
 def _is_sequence(value: Any) -> bool:

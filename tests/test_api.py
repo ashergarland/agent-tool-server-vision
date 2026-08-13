@@ -120,3 +120,14 @@ def test_reports_missing_ml_runtime() -> None:
     response = api.post("/tools/extract_text_and_layout", json={"image_base64": image_base64()})
     assert response.status_code == 503
     assert response.json() == {"detail": "PaddleOCR is unavailable"}
+
+
+def test_handles_fragments_without_points() -> None:
+    class PointlessEngine:
+        def extract(self, image: Image.Image, language: str) -> list[OcrFragment]:
+            return [OcrFragment("hello", 0.9, ())]
+
+    api = TestClient(create_app(Settings(), PointlessEngine()))
+    response = api.post("/tools/extract_text_and_layout", json={"image_base64": image_base64()})
+    assert response.status_code == 200
+    assert response.json()["fragments"][0]["bounding_box"] is None
