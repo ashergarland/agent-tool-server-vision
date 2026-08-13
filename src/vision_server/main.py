@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 
 from .config import Settings
 from .models import ExtractTextRequest, ExtractTextResponse, HealthResponse
-from .ocr import OcrEngine, PaddleOcrEngine
+from .ocr import OcrEngine, OcrUnavailableError, PaddleOcrEngine
 from .service import TextExtractionService
 
 
@@ -16,8 +16,8 @@ def create_app(settings: Settings | None = None, engine: OcrEngine | None = None
         description="Local, token-efficient vision operations for AI agents.",
     )
 
-    @app.exception_handler(RuntimeError)
-    async def runtime_error_handler(_request: Request, exc: RuntimeError) -> JSONResponse:
+    @app.exception_handler(OcrUnavailableError)
+    async def ocr_unavailable_handler(_request: Request, exc: OcrUnavailableError) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     @app.get("/health", response_model=HealthResponse, tags=["system"])
@@ -30,11 +30,10 @@ def create_app(settings: Settings | None = None, engine: OcrEngine | None = None
         tags=["vision tools"],
         summary="Extract text and layout metadata from an image",
     )
-    async def extract_text_and_layout(request: ExtractTextRequest) -> ExtractTextResponse:
+    def extract_text_and_layout(request: ExtractTextRequest) -> ExtractTextResponse:
         return service.extract(request)
 
     return app
 
 
 app = create_app()
-

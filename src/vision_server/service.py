@@ -28,7 +28,7 @@ class TextExtractionService:
     def extract(self, request: ExtractTextRequest) -> ExtractTextResponse:
         image = self._decode_image(request.image_base64)
         fragments = sorted(
-            self._engine.extract(image, request.language),
+            self._engine.extract(image, request.language or self._settings.default_language),
             key=lambda fragment: (_top(fragment), _left(fragment)),
         )
         response_fragments = [
@@ -52,6 +52,12 @@ class TextExtractionService:
             header, separator, payload = payload.partition(",")
             if not separator or ";base64" not in header or not header.startswith("data:image/"):
                 raise _bad_image("Only base64-encoded image data URLs are supported")
+        max_encoded_length = ((self._settings.max_image_bytes + 2) // 3) * 4
+        if len(payload) > max_encoded_length:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Image exceeds the {self._settings.max_image_bytes}-byte limit",
+            )
         try:
             raw = base64.b64decode(payload, validate=True)
         except (binascii.Error, ValueError) as exc:
@@ -124,4 +130,3 @@ def _format_content(fragments: list[TextFragment], output_format: OutputFormat) 
             )
         return stream.getvalue()
     return "\n".join(f"- {fragment.text}" for fragment in fragments)
-

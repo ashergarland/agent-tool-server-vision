@@ -18,6 +18,10 @@ class OcrEngine(Protocol):
     def extract(self, image: Image.Image, language: str) -> list[OcrFragment]: ...
 
 
+class OcrUnavailableError(RuntimeError):
+    """Raised when the configured OCR runtime cannot be loaded."""
+
+
 class PaddleOcrEngine:
     """Lazy PaddleOCR adapter so API startup does not eagerly load model weights."""
 
@@ -28,17 +32,20 @@ class PaddleOcrEngine:
         engine = self._engines.get(language)
         if engine is None:
             try:
-                from paddleocr import PaddleOCR
+                from paddleocr import PaddleOCR  # type: ignore[import-not-found]
             except ImportError as exc:
-                raise RuntimeError(
+                raise OcrUnavailableError(
                     "PaddleOCR is unavailable; install the project with the 'ml' extra"
                 ) from exc
             engine = PaddleOCR(lang=language, use_doc_orientation_classify=False)
             self._engines[language] = engine
 
+        import numpy
+
+        pixels = numpy.asarray(image)
         if hasattr(engine, "predict"):
-            return _parse_modern_results(engine.predict(image))
-        return _parse_legacy_results(engine.ocr(image))
+            return _parse_modern_results(engine.predict(pixels))
+        return _parse_legacy_results(engine.ocr(pixels))
 
 
 def _parse_modern_results(results: Iterable[Any]) -> list[OcrFragment]:
@@ -95,5 +102,4 @@ def _points(value: Any) -> tuple[tuple[float, float], ...]:
 
 
 def _is_sequence(value: Any) -> bool:
-    return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
-
+    return isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray)

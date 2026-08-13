@@ -6,7 +6,7 @@ from PIL import Image
 
 from vision_server.config import Settings
 from vision_server.main import create_app
-from vision_server.ocr import OcrFragment
+from vision_server.ocr import OcrFragment, OcrUnavailableError
 
 
 class FakeOcrEngine:
@@ -82,10 +82,17 @@ def test_supports_text_and_csv_without_coordinates() -> None:
 
 def test_rejects_invalid_and_oversized_images() -> None:
     api = client()
-    invalid = api.post(
-        "/tools/extract_text_and_layout", json={"image_base64": "not base64!"}
-    )
+    blank = api.post("/tools/extract_text_and_layout", json={"image_base64": " "})
+    assert blank.status_code == 422
+
+    invalid = api.post("/tools/extract_text_and_layout", json={"image_base64": "not base64!"})
     assert invalid.status_code == 400
+
+    invalid_data_url = api.post(
+        "/tools/extract_text_and_layout",
+        json={"image_base64": f"data:text/plain;base64,{image_base64()}"},
+    )
+    assert invalid_data_url.status_code == 400
 
     not_image = api.post(
         "/tools/extract_text_and_layout",
@@ -107,12 +114,9 @@ def test_rejects_invalid_and_oversized_images() -> None:
 def test_reports_missing_ml_runtime() -> None:
     class MissingEngine:
         def extract(self, image: Image.Image, language: str) -> list[OcrFragment]:
-            raise RuntimeError("PaddleOCR is unavailable")
+            raise OcrUnavailableError("PaddleOCR is unavailable")
 
     api = TestClient(create_app(Settings(), MissingEngine()))
-    response = api.post(
-        "/tools/extract_text_and_layout", json={"image_base64": image_base64()}
-    )
+    response = api.post("/tools/extract_text_and_layout", json={"image_base64": image_base64()})
     assert response.status_code == 503
     assert response.json() == {"detail": "PaddleOCR is unavailable"}
-

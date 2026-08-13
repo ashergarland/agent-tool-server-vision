@@ -15,7 +15,9 @@ class ExtractTextRequest(BaseModel):
         description="Base64-encoded image, optionally prefixed with an image data-URL header.",
     )
     output_format: OutputFormat = OutputFormat.MARKDOWN
-    language: str = Field(default="en", min_length=2, max_length=16, pattern=r"^[A-Za-z0-9_-]+$")
+    language: str | None = Field(
+        default=None, min_length=2, max_length=16, pattern=r"^[A-Za-z0-9_-]+$"
+    )
     include_coordinates: bool = True
 
     @field_validator("image_base64")
@@ -57,4 +59,3 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     service: str
     version: str
-
