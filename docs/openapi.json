@@ -1,0 +1,1175 @@
+{
+  "components": {
+    "schemas": {
+      "AssetImage": {
+        "additionalProperties": false,
+        "description": "An opaque asset identifier previously returned by the asset API.",
+        "properties": {
+          "assetId": {
+            "maxLength": 128,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Assetid",
+            "type": "string"
+          },
+          "kind": {
+            "const": "asset",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "assetId"
+        ],
+        "title": "AssetImage",
+        "type": "object"
+      },
+      "AssetUploadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "title": "Assetid",
+            "type": "string"
+          },
+          "byteCount": {
+            "title": "Bytecount",
+            "type": "integer"
+          },
+          "contentType": {
+            "title": "Contenttype",
+            "type": "string"
+          },
+          "expiresAt": {
+            "title": "Expiresat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assetId",
+          "byteCount",
+          "contentType",
+          "expiresAt"
+        ],
+        "title": "AssetUploadResponse",
+        "type": "object"
+      },
+      "BlockType": {
+        "enum": [
+          "line",
+          "paragraph",
+          "word"
+        ],
+        "title": "BlockType",
+        "type": "string"
+      },
+      "BoundingBox": {
+        "additionalProperties": false,
+        "description": "Pixel box using the top-left origin convention: x/y are inclusive.",
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Width",
+            "type": "integer"
+          },
+          "x": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "BoundingBox",
+        "type": "object"
+      },
+      "ChangedRegion": {
+        "additionalProperties": false,
+        "properties": {
+          "box": {
+            "$ref": "#/components/schemas/BoundingBox"
+          },
+          "changedPixels": {
+            "minimum": 1.0,
+            "title": "Changedpixels",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "box",
+          "changedPixels"
+        ],
+        "title": "ChangedRegion",
+        "type": "object"
+      },
+      "CompareImagesInput": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "discriminator": {
+              "mapping": {
+                "asset": "#/components/schemas/AssetImage",
+                "local_path": "#/components/schemas/LocalPathImage"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LocalPathImage"
+              },
+              {
+                "$ref": "#/components/schemas/AssetImage"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "discriminator": {
+              "mapping": {
+                "asset": "#/components/schemas/AssetImage",
+                "local_path": "#/components/schemas/LocalPathImage"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LocalPathImage"
+              },
+              {
+                "$ref": "#/components/schemas/AssetImage"
+              }
+            ],
+            "title": "Before"
+          },
+          "includeDiff": {
+            "default": false,
+            "title": "Includediff",
+            "type": "boolean"
+          },
+          "maxRegions": {
+            "default": 20,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Maxregions",
+            "type": "integer"
+          },
+          "threshold": {
+            "default": 0.05,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "type": "number"
+          }
+        },
+        "required": [
+          "before",
+          "after"
+        ],
+        "title": "CompareImagesInput",
+        "type": "object"
+      },
+      "CompareImagesOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "afterDimensions": {
+            "$ref": "#/components/schemas/Dimensions"
+          },
+          "beforeDimensions": {
+            "$ref": "#/components/schemas/Dimensions"
+          },
+          "changedPixels": {
+            "minimum": 0.0,
+            "title": "Changedpixels",
+            "type": "integer"
+          },
+          "changedRatio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Changedratio",
+            "type": "number"
+          },
+          "comparisonDimensions": {
+            "$ref": "#/components/schemas/Dimensions"
+          },
+          "diffArtifactId": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diffartifactid"
+          },
+          "dimensionsChanged": {
+            "title": "Dimensionschanged",
+            "type": "boolean"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResultMeta"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/ChangedRegion"
+            },
+            "maxItems": 100,
+            "title": "Regions",
+            "type": "array"
+          },
+          "similarityScore": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Similarityscore",
+            "type": "number"
+          }
+        },
+        "required": [
+          "similarityScore",
+          "beforeDimensions",
+          "afterDimensions",
+          "dimensionsChanged",
+          "comparisonDimensions",
+          "changedPixels",
+          "changedRatio"
+        ],
+        "title": "CompareImagesOutput",
+        "type": "object"
+      },
+      "ComponentStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "ComponentStatus",
+        "type": "object"
+      },
+      "Dimensions": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height"
+        ],
+        "title": "Dimensions",
+        "type": "object"
+      },
+      "ExtractTextInput": {
+        "additionalProperties": false,
+        "properties": {
+          "image": {
+            "discriminator": {
+              "mapping": {
+                "asset": "#/components/schemas/AssetImage",
+                "local_path": "#/components/schemas/LocalPathImage"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LocalPathImage"
+              },
+              {
+                "$ref": "#/components/schemas/AssetImage"
+              }
+            ],
+            "title": "Image"
+          },
+          "includeCoordinates": {
+            "default": true,
+            "title": "Includecoordinates",
+            "type": "boolean"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 2,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "outputFormat": {
+            "$ref": "#/components/schemas/OutputFormat",
+            "default": "markdown"
+          },
+          "processingMode": {
+            "$ref": "#/components/schemas/ProcessingMode",
+            "default": "auto"
+          }
+        },
+        "required": [
+          "image"
+        ],
+        "title": "ExtractTextInput",
+        "type": "object"
+      },
+      "ExtractTextOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/TextBlock"
+            },
+            "maxItems": 500,
+            "title": "Blocks",
+            "type": "array"
+          },
+          "content": {
+            "maxLength": 200000,
+            "title": "Content",
+            "type": "string"
+          },
+          "dimensions": {
+            "$ref": "#/components/schemas/Dimensions"
+          },
+          "fallbackUsed": {
+            "default": false,
+            "title": "Fallbackused",
+            "type": "boolean"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResultMeta"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderInfo"
+          }
+        },
+        "required": [
+          "content",
+          "dimensions",
+          "provider"
+        ],
+        "title": "ExtractTextOutput",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "version"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ImageFormat": {
+        "enum": [
+          "png",
+          "jpeg",
+          "webp"
+        ],
+        "title": "ImageFormat",
+        "type": "string"
+      },
+      "LocalPathImage": {
+        "additionalProperties": false,
+        "description": "A regular file beneath one of the configured allowed roots.",
+        "properties": {
+          "kind": {
+            "const": "local_path",
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "path"
+        ],
+        "title": "LocalPathImage",
+        "type": "object"
+      },
+      "NormalizedBox": {
+        "additionalProperties": false,
+        "description": "Box expressed as fractions of image width and height.",
+        "properties": {
+          "height": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "width": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "NormalizedBox",
+        "type": "object"
+      },
+      "OptimizeRegionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "box": {
+            "$ref": "#/components/schemas/BoundingBox"
+          },
+          "image": {
+            "discriminator": {
+              "mapping": {
+                "asset": "#/components/schemas/AssetImage",
+                "local_path": "#/components/schemas/LocalPathImage"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LocalPathImage"
+              },
+              {
+                "$ref": "#/components/schemas/AssetImage"
+              }
+            ],
+            "title": "Image"
+          },
+          "maxHeight": {
+            "default": 1024,
+            "maximum": 8192.0,
+            "minimum": 16.0,
+            "title": "Maxheight",
+            "type": "integer"
+          },
+          "maxWidth": {
+            "default": 1024,
+            "maximum": 8192.0,
+            "minimum": 16.0,
+            "title": "Maxwidth",
+            "type": "integer"
+          },
+          "outputFormat": {
+            "$ref": "#/components/schemas/ImageFormat",
+            "default": "webp"
+          },
+          "quality": {
+            "default": 80,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Quality",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "image",
+          "box"
+        ],
+        "title": "OptimizeRegionInput",
+        "type": "object"
+      },
+      "OptimizeRegionOutput": {
+        "additionalProperties": false,
+        "properties": {
+          "artifactId": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Artifactid",
+            "type": "string"
+          },
+          "byteCount": {
+            "minimum": 1.0,
+            "title": "Bytecount",
+            "type": "integer"
+          },
+          "cropDimensions": {
+            "$ref": "#/components/schemas/Dimensions"
+          },
+          "format": {
+            "$ref": "#/components/schemas/ImageFormat"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResultMeta"
+          },
+          "normalizedBox": {
+            "$ref": "#/components/schemas/NormalizedBox"
+          },
+          "originalByteCount": {
+            "minimum": 1.0,
+            "title": "Originalbytecount",
+            "type": "integer"
+          },
+          "originalDimensions": {
+            "$ref": "#/components/schemas/Dimensions"
+          },
+          "outputDimensions": {
+            "$ref": "#/components/schemas/Dimensions"
+          }
+        },
+        "required": [
+          "artifactId",
+          "originalDimensions",
+          "cropDimensions",
+          "outputDimensions",
+          "byteCount",
+          "originalByteCount",
+          "format",
+          "normalizedBox"
+        ],
+        "title": "OptimizeRegionOutput",
+        "type": "object"
+      },
+      "OutputFormat": {
+        "enum": [
+          "markdown",
+          "text",
+          "csv"
+        ],
+        "title": "OutputFormat",
+        "type": "string"
+      },
+      "ProcessingMode": {
+        "enum": [
+          "auto",
+          "local",
+          "azure"
+        ],
+        "title": "ProcessingMode",
+        "type": "string"
+      },
+      "ProviderInfo": {
+        "additionalProperties": false,
+        "description": "Provenance for the OCR result; never contains endpoints or secrets.",
+        "properties": {
+          "apiVersion": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apiversion"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ProcessingMode"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "enum": [
+              "local_paddleocr",
+              "azure_content_understanding"
+            ],
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "mode"
+        ],
+        "title": "ProviderInfo",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentStatus"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "configuration": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Configuration",
+            "type": "object"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "not_ready"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "version",
+          "tools",
+          "components",
+          "configuration"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "ResultMeta": {
+        "additionalProperties": false,
+        "description": "Truncation and warning metadata attached to every tool result.",
+        "properties": {
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "title": "ResultMeta",
+        "type": "object"
+      },
+      "TextBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "box": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NormalizedBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "id": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "page": {
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "type": "integer"
+          },
+          "polygon": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 32,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polygon"
+          },
+          "text": {
+            "maxLength": 4000,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/BlockType"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "text",
+          "page"
+        ],
+        "title": "TextBlock",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Token-efficient image tools. Routing rules: 1) When the goal is text or layout, run OCR first instead of sending the image to native vision. 2) For before/after questions, compare the two images first and use the returned regions. 3) When the interesting coordinates are already known, optimize that region before inspecting it. 4) Use native LLM vision only when these tools cannot answer the question, for example scene description, object detection, diagram parsing, or visual question answering, which this server does not provide.",
+    "title": "agent-tool-server-vision",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/assets": {
+      "post": {
+        "operationId": "upload_asset_assets_post",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Upload Asset",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/assets/{asset_id}": {
+      "delete": {
+        "operationId": "delete_asset_assets__asset_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Asset",
+        "tags": [
+          "assets"
+        ]
+      },
+      "get": {
+        "operationId": "download_asset_assets__asset_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Asset",
+        "tags": [
+          "assets"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "ready_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ready",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/tools/compare_images": {
+      "post": {
+        "description": "Compare a before and after image and return a similarity score, changed pixel counts, and deterministic changed regions.\n\nWhen to use:\n- Screenshot regression checks and before/after change detection.\n- Deciding whether anything changed before inspecting an image visually.\n- Locating the regions that changed so a later crop can be targeted.\n\nWhen not to use:\n- Explain or describe why something changed, or judge visual quality.\n- Comparing images that are not pixel comparable, such as different renderings of unrelated content.\n\nInput constraints:\n- Images are referenced only as {'kind':'local_path','path':...} inside the configured allowed roots or {'kind':'asset','assetId':...}; base64, data URLs, remote URLs, storage URLs, and SAS URLs are rejected.\n- threshold is 0.0-1.0 as a fraction of the channel range; maxRegions is 1-100.\n- Unequal sizes compare the overlapping region and count the remainder as changed.\n\nBehaviour: Fully deterministic and local: no model or network call is involved and repeated calls on the same inputs return identical output.\nToken savings: Replaces sending two full images to native vision with a small numeric summary and at most a few region boxes.",
+        "operationId": "compare_images",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareImagesInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareImagesOutput"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare two images",
+        "tags": [
+          "vision tools"
+        ],
+        "x-mcp-annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "readOnlyHint": true
+        }
+      }
+    },
+    "/tools/extract_text_and_layout": {
+      "post": {
+        "description": "Read text and layout from an image and return formatted content plus ordered text blocks with normalized coordinates.\n\nWhen to use:\n- OCR screenshots, scanned pages, tables, forms, labels, and UI captures.\n- Any task whose goal is the text or reading order of an image.\n- Before native LLM vision whenever text or layout is what you need.\n\nWhen not to use:\n- Describe a photograph or scene, judge style, or answer open visual questions.\n- Parse diagrams, detect objects, map UI controls, or ground text to on-screen elements; none of these are supported in this phase.\n\nInput constraints:\n- Images are referenced only as {'kind':'local_path','path':...} inside the configured allowed roots or {'kind':'asset','assetId':...}; base64, data URLs, remote URLs, storage URLs, and SAS URLs are rejected.\n- outputFormat is markdown, text, or csv; processingMode is auto, local, or azure.\n- Forced local or azure modes never switch providers.\n\nBehaviour: Provider backed. The local PaddleOCR provider and the managed Azure Content Understanding provider are normalized to the same block schema; auto mode falls back to local only after a retryable provider failure.\nToken savings: Returns compact text and normalized boxes instead of the image, avoiding full-image vision tokens.",
+        "operationId": "extract_text_and_layout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractTextInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractTextOutput"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Extract text and layout",
+        "tags": [
+          "vision tools"
+        ],
+        "x-mcp-annotations": {
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": true,
+          "readOnlyHint": true
+        }
+      }
+    },
+    "/tools/optimize_image_region": {
+      "post": {
+        "description": "Crop a known pixel region, optionally downscale it, and store the compressed result as an opaque artifact.\n\nWhen to use:\n- You already know the coordinates worth inspecting, for example from compare_images or extract_text_and_layout.\n- You must send a small, cheap crop to native vision instead of a full screenshot.\n\nWhen not to use:\n- You do not know which region matters yet; find it first.\n- You want to find where a control such as a login button is on screen; locating elements is not supported.\n- You need the text itself, which extract_text_and_layout returns directly.\n\nInput constraints:\n- Images are referenced only as {'kind':'local_path','path':...} inside the configured allowed roots or {'kind':'asset','assetId':...}; base64, data URLs, remote URLs, storage URLs, and SAS URLs are rejected.\n- box is pixels with a top-left origin: x and y are the inclusive left and top edges.\n- The box must lie inside the image; it is rejected rather than clamped. maxWidth and maxHeight are 16-8192, quality is 1-100, and outputFormat is png, jpeg, or webp.\n\nBehaviour: Fully deterministic and local: crops never upscale and resizing uses a fixed Lanczos filter.\nToken savings: A cropped, downscaled artifact costs a fraction of the image tokens of the original screenshot.",
+        "operationId": "optimize_image_region",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptimizeRegionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizeRegionOutput"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Crop and optimize an image region",
+        "tags": [
+          "vision tools"
+        ],
+        "x-mcp-annotations": {
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "readOnlyHint": false
+        }
+      }
+    }
+  }
+}

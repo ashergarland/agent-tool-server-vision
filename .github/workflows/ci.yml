@@ -26,6 +26,8 @@ jobs:
       - run: ruff format --check .
       - run: mypy
       - run: pytest
+      - name: Check OpenAPI snapshot
+        run: python scripts/check_openapi.py
 
   container:
     runs-on: ubuntu-latest
@@ -39,16 +41,30 @@ jobs:
           push: false
           tags: agent-tool-server-vision:test
       - name: Smoke test
+        env:
+          SMOKE_API_KEY: smoke-test-key-not-a-secret
         run: |
           set -euo pipefail
-          docker run --rm -d --name vision-server -p 8080:8080 agent-tool-server-vision:test
+          docker run --rm -d --name vision-server \
+            --read-only --tmpfs /tmp --tmpfs /home/vision/.cache \
+            --user 10001:10001 \
+            -e VISION_API_KEYS="$SMOKE_API_KEY" \
+            -e VISION_ALLOWED_ROOTS=/tmp/images \
+            -p 8080:8080 agent-tool-server-vision:test
           trap 'docker logs vision-server; docker stop vision-server' EXIT
           for attempt in {1..60}; do
             curl --fail --silent http://127.0.0.1:8080/health && break
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:8080/openapi.json
-          test "$(docker inspect --format '{{.Config.User}}' vision-server)" = vision
+          curl --fail --silent -H "Authorization: Bearer $SMOKE_API_KEY" \
+            http://127.0.0.1:8080/ready
+          curl --fail --silent http://127.0.0.1:8080/openapi.json > /dev/null
+          curl --fail --silent -X POST http://127.0.0.1:8080/mcp/ \
+            -H "Authorization: Bearer $SMOKE_API_KEY" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | tee /dev/stderr | grep -q extract_text_and_layout
+          test "$(docker inspect --format '{{.Config.User}}' vision-server)" = 10001:10001
 
   bicep:
     runs-on: ubuntu-latest
@@ -61,4 +77,3 @@ jobs:
           az bicep build --file infra/main.bicep
           az bicep lint --file infra/main.bicep
           az bicep build-params --file infra/parameters/dev.bicepparam
-

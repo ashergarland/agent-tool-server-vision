@@ -1,9 +1,15 @@
 using '../main.bicep'
 
+// Replace placeholders with your own values. No subscription, tenant, region, or
+// account specific values are committed to this repository.
 param environmentName = 'dev'
-param location = 'eastus'
 param deployApp = false
-param containerImage = 'replace.invalid/agent-tool-server:replace-me'
-param mutationsEnabled = false
+param containerImage = 'replace.invalid/agent-tool-server-vision:replace-me'
+param deployContentUnderstanding = false
+param providerMode = 'local'
+param assetTtlSeconds = 86400
+param cpu = '2'
+param memory = '4Gi'
 param minReplicas = 0
-param maxReplicas = 3
+param maxReplicas = 5
+param httpConcurrency = 10
