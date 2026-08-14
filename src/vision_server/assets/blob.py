@@ -14,10 +14,13 @@ from typing import Any
 from ..errors import ErrorCode, VisionError
 from ..security import new_token, principal_bucket
 from .base import (
+    ID_PREFIX,
+    AssetKind,
     AssetRecord,
     authorize,
     ensure_content_type,
     expiry_from,
+    kind_of,
     not_found,
     quota_exceeded,
     too_large,
@@ -25,12 +28,13 @@ from .base import (
 
 
 class AzureBlobAssetStore:
-    """Asset store backed by a single private container."""
+    """Asset store backed by two private containers: inputs and artifacts."""
 
     def __init__(
         self,
         account_url: str,
         container: str,
+        artifact_container: str | None = None,
         *,
         ttl_seconds: int,
         max_bytes: int,
@@ -39,13 +43,16 @@ class AzureBlobAssetStore:
         client_factory: Any | None = None,
     ) -> None:
         self._account_url = account_url
-        self._container = container
+        self._containers = {
+            AssetKind.INPUT: container,
+            AssetKind.ARTIFACT: artifact_container or container,
+        }
         self._ttl_seconds = ttl_seconds
         self._max_bytes = max_bytes
         self._quota_bytes = quota_bytes
         self._quota_count = quota_count
         self._client_factory = client_factory
-        self._client: Any | None = None
+        self._clients: dict[AssetKind, Any] = {}
 
     # -- public API ---------------------------------------------------------
 
@@ -54,6 +61,7 @@ class AzureBlobAssetStore:
         principal: str,
         chunks: AsyncIterator[bytes],
         content_type: str,
+        kind: AssetKind = AssetKind.INPUT,
     ) -> AssetRecord:
         normalized_type = ensure_content_type(content_type)
         buffer = bytearray()
@@ -63,7 +71,9 @@ class AzureBlobAssetStore:
                 raise too_large(self._max_bytes)
         if not buffer:
             raise VisionError(ErrorCode.INVALID_INPUT, "Asset payload is empty")
-        return await asyncio.to_thread(self._upload, principal, bytes(buffer), normalized_type)
+        return await asyncio.to_thread(
+            self._upload, principal, bytes(buffer), normalized_type, kind
+        )
 
     async def get(self, principal: str, asset_id: str) -> tuple[AssetRecord, bytes]:
         return await asyncio.to_thread(self._download, principal, asset_id)
@@ -81,21 +91,24 @@ class AzureBlobAssetStore:
 
     async def health(self) -> tuple[str, str | None]:
         try:
-            await asyncio.to_thread(self._container_client().get_container_properties)
+            for kind in self._containers:
+                await asyncio.to_thread(self._container_client(kind).get_container_properties)
         except Exception:  # noqa: BLE001 - SDK errors must not leak
             return "unavailable", "blob container is unreachable"
         return "ok", None
 
     # -- internals ----------------------------------------------------------
 
-    def _container_client(self) -> Any:
-        if self._client is None:
-            self._client = self._create_client()
-        return self._client
+    def _container_client(self, kind: AssetKind) -> Any:
+        client = self._clients.get(kind)
+        if client is None:
+            client = self._create_client(self._containers[kind])
+            self._clients[kind] = client
+        return client
 
-    def _create_client(self) -> Any:
+    def _create_client(self, container: str) -> Any:
         if self._client_factory is not None:
-            return self._client_factory()
+            return self._client_factory(container)
         try:
             from azure.identity import DefaultAzureCredential
             from azure.storage.blob import ContainerClient
@@ -106,7 +119,7 @@ class AzureBlobAssetStore:
             ) from exc
         return ContainerClient(
             account_url=self._account_url,
-            container_name=self._container,
+            container_name=container,
             credential=DefaultAzureCredential(),
         )
 
@@ -115,9 +128,11 @@ class AzureBlobAssetStore:
             raise not_found()
         return f"{principal_bucket(principal)}/{asset_id}"
 
-    def _upload(self, principal: str, payload: bytes, content_type: str) -> AssetRecord:
-        self._enforce_quota(principal, len(payload))
-        asset_id = new_token()
+    def _upload(
+        self, principal: str, payload: bytes, content_type: str, kind: AssetKind
+    ) -> AssetRecord:
+        self._enforce_quota(principal, len(payload), kind)
+        asset_id = ID_PREFIX[kind] + new_token()
         created, expires = expiry_from(self._ttl_seconds)
         record = AssetRecord(
             asset_id=asset_id,
@@ -133,7 +148,7 @@ class AzureBlobAssetStore:
             settings: Any = ContentSettings(content_type=content_type)
         except ImportError:  # pragma: no cover - exercised through fakes
             settings = None
-        client = self._container_client().get_blob_client(self._blob_name(principal, asset_id))
+        client = self._container_client(kind).get_blob_client(self._blob_name(principal, asset_id))
         client.upload_blob(
             payload,
             overwrite=False,
@@ -147,7 +162,9 @@ class AzureBlobAssetStore:
         return record
 
     def _download(self, principal: str, asset_id: str) -> tuple[AssetRecord, bytes]:
-        client = self._container_client().get_blob_client(self._blob_name(principal, asset_id))
+        client = self._container_client(kind_of(asset_id)).get_blob_client(
+            self._blob_name(principal, asset_id)
+        )
         try:
             downloader = client.download_blob()
             payload = downloader.readall()
@@ -168,18 +185,20 @@ class AzureBlobAssetStore:
         return record, bytes(payload)
 
     def _delete(self, principal: str, asset_id: str) -> None:
-        client = self._container_client().get_blob_client(self._blob_name(principal, asset_id))
+        client = self._container_client(kind_of(asset_id)).get_blob_client(
+            self._blob_name(principal, asset_id)
+        )
         try:
             client.delete_blob()
         except Exception:  # noqa: BLE001 - deletion is best effort
             return
 
-    def _enforce_quota(self, principal: str, incoming_bytes: int) -> None:
+    def _enforce_quota(self, principal: str, incoming_bytes: int, kind: AssetKind) -> None:
         prefix = principal_bucket(principal) + "/"
         total = 0
         count = 0
         try:
-            blobs = self._container_client().list_blobs(name_starts_with=prefix)
+            blobs = self._container_client(kind).list_blobs(name_starts_with=prefix)
         except Exception:  # noqa: BLE001 - quota accounting is best effort
             return
         for blob in blobs:

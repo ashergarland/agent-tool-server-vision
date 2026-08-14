@@ -127,19 +127,19 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
               value: identityClientId
             }
             {
-              name: 'VISION_ASSET_BACKEND'
-              value: 'blob'
+              name: 'VISION_STORAGE_BACKEND'
+              value: 'azure_blob'
             }
             {
-              name: 'VISION_AZURE_STORAGE_ACCOUNT_URL'
+              name: 'VISION_STORAGE_ACCOUNT_URL'
               value: storageAccountUrl
             }
             {
-              name: 'VISION_AZURE_ASSET_CONTAINER'
+              name: 'VISION_ASSET_CONTAINER'
               value: inputContainerName
             }
             {
-              name: 'VISION_AZURE_ARTIFACT_CONTAINER'
+              name: 'VISION_ARTIFACT_CONTAINER'
               value: artifactContainerName
             }
             {

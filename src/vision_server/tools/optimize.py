@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ..assets.base import CONTENT_TYPE_BY_FORMAT
+from ..assets.base import CONTENT_TYPE_BY_FORMAT, AssetKind
 from ..errors import ErrorCode, VisionError
 from ..imaging import LoadedImage, encode_image, load_image
 from ..runtime import ToolContext
@@ -35,6 +35,7 @@ async def optimize_image_region(
         context.principal,
         _single_chunk(encoded),
         CONTENT_TYPE_BY_FORMAT[payload.output_format.value],
+        AssetKind.ARTIFACT,
     )
     box = payload.box
     return OptimizeRegionOutput(

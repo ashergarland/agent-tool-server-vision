@@ -1,57 +1,86 @@
-# Azure Container Apps deployment example
+# Azure deployment
 
-This example is replaceable hosting scaffolding. It does not add Azure product logic to the tool
-server.
+The infrastructure in `infra/` is portable: it contains no subscription, tenant, resource group,
+principal, service name, endpoint, region, or billing value. Anyone can fork this repository and
+deploy it into their own tenant. Local-only mode requires no Azure at all.
+
+## What is provisioned
+
+| Resource | Purpose |
+| -------- | ------- |
+| User-assigned managed identity | Registry pull, Key Vault read, Blob data access, Content Understanding inference |
+| Container Registry | Application image |
+| Key Vault | Only the unavoidable API-key secret |
+| Storage account | Two private containers (`vision-input`, `vision-artifacts`) with a lifecycle rule that deletes blobs on the TTL day boundary |
+| Azure AI Services account (optional) | Content Understanding read/layout, `disableLocalAuth`, Entra only |
+| Log Analytics and Application Insights | Operational telemetry |
+| Container Apps environment and app | The server itself |
+
+No Azure Machine Learning resource and no Image Analysis 4.0 resource is provisioned.
+
+## Defaults
+
+2 vCPU, 4 GiB memory, `minReplicas` 0 (scale to zero), `maxReplicas` 5, HTTP concurrency 10,
+`/health` for liveness and `/ready` for readiness. Location, naming, CPU, memory, replicas,
+concurrency, storage, provider mode, TTL, and timeouts are all parameters.
 
 ## Prerequisites
 
-- Azure CLI with the Bicep CLI installed
+- Azure CLI with the Bicep CLI
 - Docker
-- permission to create subscription deployments, a resource group, role assignments, and the
-  included resources
-- a signed-in human user that can be granted Key Vault Secrets Officer during bootstrap
-- a selected subscription (`az account set --subscription ...`)
+- permission to create subscription deployments, a resource group, and role assignments
+- a selected subscription (`az account set --subscription <your-subscription>`)
 
-Do not place subscription IDs, tenant IDs, credentials, or generated deployment names in tracked
-files.
+Never commit subscription IDs, tenant IDs, generated resource names, or credentials.
 
-## Safe two-pass provisioning
+## Two-pass provisioning
 
 ```bash
-./scripts/bootstrap/provision.sh dev eastus
+# choose your own environment name and region
+./scripts/bootstrap/provision.sh dev <your-region>
 ```
 
-The script:
+The script deploys shared resources with `deployApp=false`, writes a generated API key straight to
+Key Vault, builds and pushes the image, then deploys again with `deployApp=true`. The first pass
+prevents Container Apps from starting before its Key Vault secret exists.
 
-1. validates and deploys shared resources with `deployApp=false`;
-2. prompts for or generates an API key and writes it directly to Key Vault;
-3. signs in to the created registry, builds and pushes the image;
-4. deploys again with `deployApp=true`.
-
-The first pass prevents Container Apps from repeatedly starting with a missing Key Vault secret.
-The second pass adds the app, probes, scale rules, and monitoring after its prerequisites exist.
-
-For automation, set `API_KEY` in the job's protected secret environment and set `IMAGE_TAG` to an
-immutable commit SHA. Do not use `latest` for production releases.
+To enable managed OCR, deploy with `deployContentUnderstanding=true` and `providerMode=azure` (or
+`auto`); the endpoint is wired into the app automatically. Check regional availability of Content
+Understanding before choosing a region.
 
 ## Identity and secrets
 
-The Container App uses a user-assigned managed identity to pull from ACR and read the Key Vault
-secret. No registry password or API key is embedded in Bicep. Add provider-specific role
-assignments in a separate module and grant only the actions required by registered tools.
+The Container App uses its user-assigned managed identity for every Azure call: ACR pull, the Key
+Vault secret reference, Blob data access (Storage Blob Data Contributor, scoped to the storage
+account) and Content Understanding inference (Cognitive Services User, scoped to that account).
+Shared key access on storage and local auth on the AI Services account are disabled, so no
+connection string, account key, or SAS is ever created.
 
-The interactive bootstrap user receives Key Vault Secrets Officer so it can seed and rotate this
-secret. Remove that assignment after handoff if a separate deployment identity manages rotation.
+Rotate the API key by adding the replacement to the Key Vault secret, restarting revisions, moving
+clients, then removing the old key.
 
-## Operations
+## Per-fork GitHub OIDC setup
 
-The app scales from zero to three replicas and uses `/health` for liveness and readiness. Log
-Analytics and workspace-based Application Insights are provisioned. Configure alert receivers in
-your organization rather than committing personal addresses.
+Deployment workflows must use federated credentials; do not create long-lived secrets.
 
-Rotate the API key by adding the replacement to `API_KEYS`, deploying, moving clients, then removing
-the old key. Key Vault references are versionless; create a new revision or restart replicas after
-rotation.
+1. In your own tenant, create (or reuse) an app registration or user-assigned managed identity.
+2. Add a federated credential for your fork, for example subject
+   `repo:<your-org>/<your-fork>:ref:refs/heads/main` and, if you deploy from pull requests,
+   `repo:<your-org>/<your-fork>:pull_request`, with issuer `https://token.actions.githubusercontent.com`.
+3. Grant that principal the roles it needs at your chosen scope (for example Contributor plus
+   User Access Administrator on the target resource group, which is required for role assignments).
+4. Store `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as repository variables or
+   secrets in your fork, and give the deployment job `permissions: id-token: write`.
+5. Use `azure/login@v2` with those values; no client secret is required.
 
-Destroy the example by deleting its generated resource group after confirming it contains no
-shared resources.
+## Cost and cold starts
+
+With `minReplicas: 0` the app costs nothing while idle, and the first request after idling pays a
+container cold start. Enabling the local OCR provider additionally pays a one-time model load, so
+prefer the managed provider or `minReplicas: 1` for latency-sensitive workloads. Content
+Understanding is billed per analyzed page, storage is billed for the retained assets only (TTL
+deletes them), and Log Analytics is billed by ingestion.
+
+## Teardown
+
+Delete the generated resource group after confirming it holds no shared resources.

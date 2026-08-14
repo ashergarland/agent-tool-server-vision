@@ -2,8 +2,12 @@
 set -euo pipefail
 
 ENVIRONMENT_NAME="${1:-dev}"
-LOCATION="${2:-eastus}"
-DEPLOYMENT_NAME="ats-${ENVIRONMENT_NAME}"
+if [[ -z "${2:-}" ]]; then
+  printf 'Usage: %s <environment-name> <azure-region>\n' "$0" >&2
+  exit 2
+fi
+LOCATION="$2"
+DEPLOYMENT_NAME="atsv-${ENVIRONMENT_NAME}"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short=12 HEAD)}"
 SECRET_NAME="tool-server-api-key"
 BOOTSTRAP_PRINCIPAL_OBJECT_ID="$(az ad signed-in-user show --query id -o tsv)"
@@ -49,9 +53,9 @@ unset API_KEY
 
 az acr build \
   --registry "$REGISTRY_NAME" \
-  --image "agent-tool-server:${IMAGE_TAG}" \
+  --image "agent-tool-server-vision:${IMAGE_TAG}" \
   --build-arg "GIT_SHA=${IMAGE_TAG}" \
-  --build-arg "SERVICE_VERSION=${SERVICE_VERSION:-0.1.0}" \
+  --build-arg "SERVICE_VERSION=${SERVICE_VERSION:-0.2.0}" \
   . \
   --only-show-errors
 
@@ -64,5 +68,5 @@ az deployment sub create \
     location="$LOCATION" \
     deployApp=true \
     bootstrapPrincipalObjectId="$BOOTSTRAP_PRINCIPAL_OBJECT_ID" \
-    containerImage="${REGISTRY_SERVER}/agent-tool-server:${IMAGE_TAG}" \
+    containerImage="${REGISTRY_SERVER}/agent-tool-server-vision:${IMAGE_TAG}" \
   --only-show-errors

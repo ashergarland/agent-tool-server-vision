@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from ..assets.base import CONTENT_TYPE_BY_FORMAT
+from ..assets.base import CONTENT_TYPE_BY_FORMAT, AssetKind
 from ..imaging import LoadedImage, encode_image, load_image
 from ..runtime import ToolContext
 from ..schemas import (
@@ -58,6 +58,7 @@ async def compare_images(payload: CompareImagesInput, context: ToolContext) -> C
             context.principal,
             _single_chunk(comparison.diff_png),
             CONTENT_TYPE_BY_FORMAT["png"],
+            AssetKind.ARTIFACT,
         )
         diff_artifact_id = record.asset_id
     elif payload.include_diff:

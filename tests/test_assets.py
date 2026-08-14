@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from vision_server.assets import FilesystemAssetStore
+from vision_server.assets import AssetKind, FilesystemAssetStore
 from vision_server.assets.blob import AzureBlobAssetStore
 from vision_server.errors import ErrorCode, VisionError
 from vision_server.security import principal_bucket
@@ -164,7 +164,12 @@ class FakeContainer:
         ]
 
 
-def blob_store(container: FakeContainer, **overrides: int) -> AzureBlobAssetStore:
+def blob_store(
+    container: FakeContainer,
+    artifacts: FakeContainer | None = None,
+    **overrides: int,
+) -> AzureBlobAssetStore:
+    containers = {"vision-input": container, "vision-artifacts": artifacts or container}
     values: dict[str, int] = {
         "ttl_seconds": 3600,
         "max_bytes": 4096,
@@ -174,8 +179,9 @@ def blob_store(container: FakeContainer, **overrides: int) -> AzureBlobAssetStor
     values.update(overrides)
     return AzureBlobAssetStore(
         "https://example.blob.core.windows.net",
-        "assets",
-        client_factory=lambda: container,
+        "vision-input",
+        "vision-artifacts",
+        client_factory=lambda name: containers[name],
         **values,
     )
 
@@ -208,8 +214,31 @@ async def test_blob_store_enforces_quota() -> None:
     assert error.value.code is ErrorCode.QUOTA_EXCEEDED
 
 
+async def test_blob_store_separates_inputs_from_artifacts() -> None:
+    inputs = FakeContainer()
+    artifacts = FakeContainer()
+    subject = blob_store(inputs, artifacts)
+
+    uploaded = await subject.put(PRINCIPAL_A, single_chunk(png_bytes()), "image/png")
+    generated = await subject.put(
+        PRINCIPAL_A, single_chunk(png_bytes()), "image/png", AssetKind.ARTIFACT
+    )
+    assert len(inputs.blobs) == 1
+    assert len(artifacts.blobs) == 1
+    assert uploaded.asset_id.startswith("i")
+    assert generated.asset_id.startswith("a")
+
+    for asset_id in (uploaded.asset_id, generated.asset_id):
+        record, payload = await subject.get(PRINCIPAL_A, asset_id)
+        assert record.byte_count == len(payload)
+
+    await subject.delete(PRINCIPAL_A, generated.asset_id)
+    assert not artifacts.blobs
+    assert inputs.blobs
+
+
 async def test_blob_store_reports_missing_assets() -> None:
     subject = blob_store(FakeContainer())
     with pytest.raises(VisionError) as error:
-        await subject.get(PRINCIPAL_A, "unknown-asset-id")
+        await subject.get(PRINCIPAL_A, "iunknown-asset-id")
     assert error.value.code is ErrorCode.NOT_FOUND

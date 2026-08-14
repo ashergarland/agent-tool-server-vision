@@ -16,6 +16,7 @@ def build_asset_store(settings: Settings) -> AssetStore:
         return AzureBlobAssetStore(
             settings.storage_account_url,
             settings.asset_container,
+            settings.artifact_container or settings.asset_container,
             ttl_seconds=settings.asset_ttl_seconds,
             max_bytes=settings.asset_max_bytes,
             quota_bytes=settings.asset_quota_bytes,

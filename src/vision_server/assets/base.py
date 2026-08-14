@@ -10,6 +10,7 @@ import hmac
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Protocol
 
 from ..errors import ErrorCode, VisionError
@@ -20,6 +21,24 @@ CONTENT_TYPE_BY_FORMAT: dict[str, str] = {
     "jpeg": "image/jpeg",
     "webp": "image/webp",
 }
+
+
+class AssetKind(StrEnum):
+    """Why an asset exists. Inputs are uploaded; artifacts are generated."""
+
+    INPUT = "input"
+    ARTIFACT = "artifact"
+
+
+ID_PREFIX: dict[AssetKind, str] = {AssetKind.INPUT: "i", AssetKind.ARTIFACT: "a"}
+
+
+def kind_of(asset_id: str) -> AssetKind:
+    """Recover the kind encoded in an opaque asset ID."""
+    for kind, prefix in ID_PREFIX.items():
+        if asset_id.startswith(prefix):
+            return kind
+    raise not_found()
 
 
 @dataclass(frozen=True)
@@ -46,6 +65,7 @@ class AssetStore(Protocol):
         principal: str,
         chunks: AsyncIterator[bytes],
         content_type: str,
+        kind: AssetKind = AssetKind.INPUT,
     ) -> AssetRecord: ...
 
     async def get(self, principal: str, asset_id: str) -> tuple[AssetRecord, bytes]: ...

@@ -13,7 +13,9 @@ DOCKERFILE = (ROOT / "Dockerfile").read_text()
 MAIN_BICEP = (ROOT / "infra" / "main.bicep").read_text()
 CONTAINER_APP_BICEP = (ROOT / "infra" / "modules" / "container-app.bicep").read_text()
 STORAGE_BICEP = (ROOT / "infra" / "modules" / "storage.bicep").read_text()
-CONTENT_UNDERSTANDING_BICEP = (ROOT / "infra" / "modules" / "content-understanding.bicep").read_text()
+CONTENT_UNDERSTANDING_BICEP = (
+    ROOT / "infra" / "modules" / "content-understanding.bicep"
+).read_text()
 INFRA_FILES = sorted((ROOT / "infra").rglob("*.bicep*"))
 
 
@@ -60,6 +62,13 @@ def test_infrastructure_grants_least_privilege_managed_identity_access() -> None
     assert "AZURE_CLIENT_ID" in CONTAINER_APP_BICEP
     assert "connectionString" not in STORAGE_BICEP
     assert "listKeys" not in STORAGE_BICEP + CONTENT_UNDERSTANDING_BICEP
+
+
+def test_container_app_uses_separate_input_and_artifact_containers() -> None:
+    assert "'VISION_ASSET_CONTAINER'" in CONTAINER_APP_BICEP
+    assert "'VISION_ARTIFACT_CONTAINER'" in CONTAINER_APP_BICEP
+    assert "value: 'azure_blob'" in CONTAINER_APP_BICEP
+    assert "inputContainerName" in STORAGE_BICEP and "artifactContainerName" in STORAGE_BICEP
 
 
 def test_key_vault_is_used_only_for_the_api_key_secret() -> None:

@@ -12,6 +12,8 @@ from pathlib import Path
 
 from ..security import new_token, principal_bucket
 from .base import (
+    ID_PREFIX,
+    AssetKind,
     AssetRecord,
     authorize,
     ensure_content_type,
@@ -47,6 +49,7 @@ class FilesystemAssetStore:
         principal: str,
         chunks: AsyncIterator[bytes],
         content_type: str,
+        kind: AssetKind = AssetKind.INPUT,
     ) -> AssetRecord:
         normalized_type = ensure_content_type(content_type)
         buffer = bytearray()
@@ -56,7 +59,7 @@ class FilesystemAssetStore:
                 raise too_large(self._max_bytes)
         if not buffer:
             raise _empty()
-        return await asyncio.to_thread(self._write, principal, bytes(buffer), normalized_type)
+        return await asyncio.to_thread(self._write, principal, bytes(buffer), normalized_type, kind)
 
     async def get(self, principal: str, asset_id: str) -> tuple[AssetRecord, bytes]:
         return await asyncio.to_thread(self._read, principal, asset_id)
@@ -85,14 +88,16 @@ class FilesystemAssetStore:
     def _bucket(self, principal: str) -> Path:
         return self._root / principal_bucket(principal)
 
-    def _write(self, principal: str, payload: bytes, content_type: str) -> AssetRecord:
+    def _write(
+        self, principal: str, payload: bytes, content_type: str, kind: AssetKind
+    ) -> AssetRecord:
         self._ensure_root()
         bucket = self._bucket(principal)
         bucket.mkdir(parents=True, exist_ok=True)
         os.chmod(bucket, 0o700)
         self._purge_expired()
         self._enforce_quota(bucket, len(payload))
-        asset_id = new_token()
+        asset_id = ID_PREFIX[kind] + new_token()
         created, expires = expiry_from(self._ttl_seconds)
         record = AssetRecord(
             asset_id=asset_id,

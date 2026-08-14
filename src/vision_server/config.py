@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     storage_backend: StorageBackend = StorageBackend.FILESYSTEM
     asset_root: str = ""
     asset_container: str = ""
+    artifact_container: str = ""
     storage_account_url: str = ""
     asset_ttl_seconds: int = Field(default=3600, ge=60, le=7 * 24 * 3600)
     asset_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
