@@ -153,6 +153,26 @@ async def test_content_understanding_reports_failed_operations() -> None:
     assert error.value.code is ErrorCode.PROVIDER_ERROR
 
 
+async def test_content_understanding_rejects_unknown_operation_status() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(
+                202, headers={"operation-location": "https://example-cu.invalid/results/1"}
+            )
+        return httpx.Response(200, json={"result": {}})
+
+    provider = ContentUnderstandingProvider(
+        azure_settings(),
+        transport=transport_for(handler),
+        token_provider=lambda: "token-value",
+        poll_interval=0.0,
+    )
+    with pytest.raises(VisionError) as error:
+        await provider.analyze(loaded_image(), "en")
+    assert error.value.code is ErrorCode.PROVIDER_ERROR
+    assert error.value.retryable is False
+
+
 async def test_content_understanding_translates_transport_failures() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("unreachable")

@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from ..assets.base import CONTENT_TYPE_BY_FORMAT, AssetKind
+from ..assets.base import CONTENT_TYPE_BY_FORMAT, AssetKind, single_chunk
 from ..imaging import LoadedImage, encode_image, load_image
 from ..runtime import ToolContext
 from ..schemas import (
@@ -56,7 +56,7 @@ async def compare_images(payload: CompareImagesInput, context: ToolContext) -> C
     if payload.include_diff and comparison.diff_png is not None:
         record = await context.assets.put(
             context.principal,
-            _single_chunk(comparison.diff_png),
+            single_chunk(comparison.diff_png),
             CONTENT_TYPE_BY_FORMAT["png"],
             AssetKind.ARTIFACT,
         )
@@ -199,7 +199,3 @@ def _diff_png(after: LoadedImage, mask: BoolArray, width: int, height: int) -> b
     canvas = np.stack([base, base, base], axis=2)
     canvas[mask] = np.array([255, 0, 0], dtype=np.uint8)
     return encode_image(Image.fromarray(canvas, mode="RGB"), "png", 100)
-
-
-async def _single_chunk(payload: bytes):  # type: ignore[no-untyped-def]
-    yield payload

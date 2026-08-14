@@ -109,10 +109,12 @@ class ContentUnderstandingProvider:
                 _raise_for_status(poll)
                 body = _json(poll)
                 status = str(body.get("status", "")).lower()
-                if status in {"succeeded", "completed", ""}:
+                if status in {"succeeded", "completed"}:
                     return body
                 if status in {"failed", "canceled", "cancelled"}:
                     raise provider_malformed("Content Understanding analysis failed")
+                if not status:
+                    raise provider_malformed("Content Understanding returned an unknown status")
                 await asyncio.sleep(self._poll_interval)
 
     async def _client(self) -> Any:

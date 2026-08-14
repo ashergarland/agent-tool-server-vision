@@ -77,6 +77,11 @@ class AssetStore(Protocol):
     async def health(self) -> tuple[str, str | None]: ...
 
 
+async def single_chunk(payload: bytes) -> AsyncIterator[bytes]:
+    """Adapt an in-memory payload to the streaming ``AssetStore.put`` contract."""
+    yield payload
+
+
 def expiry_from(ttl_seconds: int) -> tuple[datetime, datetime]:
     created = datetime.now(UTC).replace(microsecond=0)
     return created, created + timedelta(seconds=ttl_seconds)

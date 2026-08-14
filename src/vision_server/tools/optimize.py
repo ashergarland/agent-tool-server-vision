@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ..assets.base import CONTENT_TYPE_BY_FORMAT, AssetKind
+from ..assets.base import CONTENT_TYPE_BY_FORMAT, AssetKind, single_chunk
 from ..errors import ErrorCode, VisionError
 from ..imaging import LoadedImage, encode_image, load_image
 from ..runtime import ToolContext
@@ -33,7 +33,7 @@ async def optimize_image_region(
     encoded, crop_size, output_size, warnings = await asyncio.to_thread(_render, payload, image)
     record = await context.assets.put(
         context.principal,
-        _single_chunk(encoded),
+        single_chunk(encoded),
         CONTENT_TYPE_BY_FORMAT[payload.output_format.value],
         AssetKind.ARTIFACT,
     )
@@ -85,7 +85,3 @@ def _render(
         crop = crop.convert("RGB")
     encoded = encode_image(crop, payload.output_format.value, payload.quality)
     return encoded, (box.width, box.height), (crop.width, crop.height), warnings
-
-
-async def _single_chunk(payload: bytes):  # type: ignore[no-untyped-def]
-    yield payload
