@@ -108,7 +108,7 @@ class PaddleOcrProvider:
         if self._engine_factory is not None:
             return self._engine_factory(language)
         try:
-            from paddleocr import PaddleOCR  # type: ignore[import-not-found]
+            from paddleocr import PaddleOCR
         except ImportError as exc:
             raise provider_unavailable(
                 "PaddleOCR is not installed; install the project with the 'ml' extra"

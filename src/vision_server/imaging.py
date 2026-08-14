@@ -80,7 +80,8 @@ def resolve_allowed_path(raw_path: str, settings: Settings) -> Path:
 def read_allowed_file(path: Path, settings: Settings) -> bytes:
     """Read a regular file with the size limit enforced on the open handle."""
     try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        descriptor = os.open(path, flags)
     except OSError as exc:
         raise VisionError(ErrorCode.NOT_FOUND, "Image was not found") from exc
     try:

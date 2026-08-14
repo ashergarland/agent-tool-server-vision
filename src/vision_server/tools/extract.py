@@ -75,10 +75,10 @@ def _to_schema(
     box: NormalizedBox | None = None
     polygon: list[float] | None = None
     if include_coordinates and block.polygon:
-        xs = [value / image.width for value in block.polygon[0::2]]
-        ys = [value / image.height for value in block.polygon[1::2]]
-        left, right = max(0.0, min(xs)), min(1.0, max(xs))
-        top, bottom = max(0.0, min(ys)), min(1.0, max(ys))
+        xs = [_clamp(value / image.width) for value in block.polygon[0::2]]
+        ys = [_clamp(value / image.height) for value in block.polygon[1::2]]
+        left, right = min(xs), max(xs)
+        top, bottom = min(ys), max(ys)
         box = NormalizedBox(
             x=round(left, 6),
             y=round(top, 6),
@@ -97,10 +97,14 @@ def _to_schema(
     )
 
 
+def _clamp(value: float) -> float:
+    return min(1.0, max(0.0, value))
+
+
 def _interleave(xs: list[float], ys: list[float]) -> list[float]:
     values: list[float] = []
     for x, y in zip(xs, ys, strict=False):
-        values.extend((min(1.0, max(0.0, x)), min(1.0, max(0.0, y))))
+        values.extend((_clamp(x), _clamp(y)))
     return values
 
 

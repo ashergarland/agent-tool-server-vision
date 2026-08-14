@@ -121,9 +121,9 @@ EXTRACT_TEXT_AND_LAYOUT = ToolDefinition(
         "Before native LLM vision whenever text or layout is what you need.",
     ),
     when_not_to_use=(
-        "Describing scenes, identifying objects, or answering open visual questions.",
-        "Parsing diagrams, detecting objects, or grounding text to UI controls; these are not "
-        "supported in this phase.",
+        "Describe a photograph or scene, judge style, or answer open visual questions.",
+        "Parse diagrams, detect objects, map UI controls, or ground text to on-screen elements; "
+        "none of these are supported in this phase.",
     ),
     input_constraints=(
         _IMAGE_REFERENCE_CONSTRAINT,
@@ -139,7 +139,7 @@ EXTRACT_TEXT_AND_LAYOUT = ToolDefinition(
         "Returns compact text and normalized boxes instead of the image, avoiding full-image "
         "vision tokens."
     ),
-    annotations=ToolAnnotations(True, False, True, False),
+    annotations=ToolAnnotations(True, False, True, True),
     input_model=ExtractTextInput,
     output_model=ExtractTextOutput,
     handler=extract_text_and_layout,
@@ -159,7 +159,7 @@ COMPARE_IMAGES = ToolDefinition(
         "Locating the regions that changed so a later crop can be targeted.",
     ),
     when_not_to_use=(
-        "Explaining why something changed or judging visual quality.",
+        "Explain or describe why something changed, or judge visual quality.",
         "Comparing images that are not pixel comparable, such as different renderings of "
         "unrelated content.",
     ),
@@ -197,6 +197,8 @@ OPTIMIZE_IMAGE_REGION = ToolDefinition(
     ),
     when_not_to_use=(
         "You do not know which region matters yet; find it first.",
+        "You want to find where a control such as a login button is on screen; locating elements "
+        "is not supported.",
         "You need the text itself, which extract_text_and_layout returns directly.",
     ),
     input_constraints=(
