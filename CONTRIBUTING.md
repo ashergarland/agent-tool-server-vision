@@ -1,10 +1,11 @@
 # Contributing
 
-Use Node.js 22 and install with `npm ci`.
+Use Python 3.11 or newer and install development dependencies with `pip install -e '.[dev]'`.
 
-Keep provider logic out of transports, external SDK types out of services, and every exposed tool
-in the shared typed registry. New write tools must support dry-run and explicit confirmation.
-Tests must cover validation, safe errors, guardrails, and generated transport surfaces.
+Keep transport concerns in the FastAPI application, image processing in services, and model-specific
+logic behind the `OcrEngine` protocol. Tests must not download model weights; inject a deterministic
+fake engine instead.
 
 Before opening a pull request, run the complete validation list in `README.md`. Never commit `.env`
-files, deployment outputs, credentials, tenant/subscription identifiers, or generated secrets.
+files, model outputs containing user data, credentials, tenant/subscription identifiers, or generated
+secrets.

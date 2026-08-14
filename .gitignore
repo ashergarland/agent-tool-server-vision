@@ -1,6 +1,12 @@
-node_modules/
-dist/
-coverage/
-openapi.json
 .env
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.egg-info/
 *.log
+.coverage
+coverage.xml
+dist/
+

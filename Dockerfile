@@ -1,30 +1,28 @@
-FROM node:22-alpine AS build
-WORKDIR /workspace
+FROM python:3.11-slim AS build
 
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY tsconfig.json tsconfig.build.json ./
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+WORKDIR /build
+
+COPY pyproject.toml README.md ./
 COPY src ./src
-RUN npm run build \
-  && npm ci --omit=dev --ignore-scripts \
-  && npm cache clean --force
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --upgrade pip \
+    && /opt/venv/bin/pip install '.[ml]'
 
-FROM node:22-alpine AS runtime
-ARG GIT_SHA=unknown
-ARG SERVICE_VERSION=0.0.0-dev
-ENV NODE_ENV=production \
-    PORT=8080 \
-    HOST=0.0.0.0 \
-    GIT_SHA=${GIT_SHA} \
-    SERVICE_VERSION=${SERVICE_VERSION}
+FROM python:3.11-slim AS runtime
+
+ENV PATH="/opt/venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1
 WORKDIR /app
 
-COPY --from=build --chown=node:node /workspace/node_modules ./node_modules
-COPY --from=build --chown=node:node /workspace/dist ./dist
-COPY --chown=node:node package.json ./
+RUN groupadd --system vision \
+    && useradd --system --gid vision --create-home vision
+COPY --from=build /opt/venv /opt/venv
 
-USER node
+USER vision
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-CMD ["node", "--enable-source-maps", "dist/index.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"
+CMD ["uvicorn", "vision_server.main:app", "--host", "0.0.0.0", "--port", "8080"]
+
