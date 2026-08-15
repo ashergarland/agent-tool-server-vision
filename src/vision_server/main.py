@@ -1,39 +1,23 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+"""Application entry points.
+
+``python -m vision_server`` serves the stdio MCP transport; ``uvicorn
+vision_server.main:app`` serves the HTTP/OpenAPI and Streamable HTTP MCP
+transports.
+"""
+
+from __future__ import annotations
+
+import asyncio
 
 from .config import Settings
-from .models import ExtractTextRequest, ExtractTextResponse, HealthResponse
-from .ocr import OcrEngine, OcrUnavailableError, PaddleOcrEngine
-from .service import TextExtractionService
+from .runtime import Runtime
+from .transports import create_app, run_stdio
 
-
-def create_app(settings: Settings | None = None, engine: OcrEngine | None = None) -> FastAPI:
-    config = settings or Settings()
-    service = TextExtractionService(config, engine or PaddleOcrEngine())
-    app = FastAPI(
-        title=config.service_name,
-        version=config.service_version,
-        description="Local, token-efficient vision operations for AI agents.",
-    )
-
-    @app.exception_handler(OcrUnavailableError)
-    async def ocr_unavailable_handler(_request: Request, exc: OcrUnavailableError) -> JSONResponse:
-        return JSONResponse(status_code=503, content={"detail": str(exc)})
-
-    @app.get("/health", response_model=HealthResponse, tags=["system"])
-    async def health() -> HealthResponse:
-        return HealthResponse(service=config.service_name, version=config.service_version)
-
-    @app.post(
-        "/tools/extract_text_and_layout",
-        response_model=ExtractTextResponse,
-        tags=["vision tools"],
-        summary="Extract text and layout metadata from an image",
-    )
-    def extract_text_and_layout(request: ExtractTextRequest) -> ExtractTextResponse:
-        return service.extract(request)
-
-    return app
-
+__all__ = ["app", "create_app", "main_stdio"]
 
 app = create_app()
+
+
+def main_stdio() -> None:
+    """Console entry point for the stdio MCP transport."""
+    asyncio.run(run_stdio(Runtime(Settings())))
