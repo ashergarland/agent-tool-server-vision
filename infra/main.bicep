@@ -21,7 +21,7 @@ param apiKeySecretName string = 'tool-server-api-key'
 param bootstrapPrincipalObjectId string = ''
 
 @description('Deploy an Azure AI Services account for Content Understanding.')
-param deployContentUnderstanding bool = false
+param deployContentUnderstanding bool = true
 
 @description('OCR provider mode used by the hosted server.')
 @allowed([
@@ -29,7 +29,7 @@ param deployContentUnderstanding bool = false
   'azure'
   'auto'
 ])
-param providerMode string = 'local'
+param providerMode string = 'azure'
 
 @description('Asset time to live in seconds; the blob lifecycle rule deletes on the matching day boundary.')
 @minValue(3600)

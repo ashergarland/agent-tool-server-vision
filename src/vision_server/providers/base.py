@@ -7,7 +7,7 @@ cropping, optimization, metadata, and normalization always run locally.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from ..errors import ErrorCode, VisionError
 from ..imaging import LoadedImage
@@ -76,3 +76,8 @@ class OcrProvider(Protocol):
     async def analyze(self, image: LoadedImage, language: str) -> OcrResult: ...
 
     async def health(self) -> tuple[str, str | None]: ...
+
+
+@runtime_checkable
+class ClosableOcrProvider(Protocol):
+    async def close(self) -> None: ...

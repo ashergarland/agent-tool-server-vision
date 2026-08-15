@@ -95,26 +95,33 @@ def _compare(
     before: LoadedImage, after: LoadedImage, threshold: float, max_regions: int
 ) -> _Comparison:
     outcome = _Comparison()
-    width = min(before.width, after.width)
-    height = min(before.height, after.height)
+    overlap_width = min(before.width, after.width)
+    overlap_height = min(before.height, after.height)
     union_width = max(before.width, after.width)
     union_height = max(before.height, after.height)
-    union_area = union_width * union_height
-    overlap_area = width * height
+    overlap_area = overlap_width * overlap_height
+    union_area = before.width * before.height + after.width * after.height - overlap_area
     outside = union_area - overlap_area
     if outside:
         outcome.warnings.append("images differ in size; non-overlapping pixels count as changed")
 
-    left = np.asarray(before.image.crop((0, 0, width, height)), dtype=np.int16)
-    right = np.asarray(after.image.crop((0, 0, width, height)), dtype=np.int16)
+    left = np.asarray(before.image.crop((0, 0, overlap_width, overlap_height)), dtype=np.int16)
+    right = np.asarray(after.image.crop((0, 0, overlap_width, overlap_height)), dtype=np.int16)
     delta = np.abs(left - right)
     max_delta = delta.max(axis=2)
     mean_delta = delta.mean(axis=2)
 
     cutoff = threshold * 255.0
-    mask = max_delta > cutoff
+    mask = np.zeros((union_height, union_width), dtype=bool)
+    before_presence = np.zeros_like(mask)
+    after_presence = np.zeros_like(mask)
+    before_presence[: before.height, : before.width] = True
+    after_presence[: after.height, : after.width] = True
+    mask[before_presence ^ after_presence] = True
+    overlap_mask = max_delta > cutoff
+    mask[:overlap_height, :overlap_width] = overlap_mask
 
-    changed_in_overlap = int(mask.sum())
+    changed_in_overlap = int(overlap_mask.sum())
     outcome.changed_pixels = changed_in_overlap + outside
     outcome.changed_ratio = round(outcome.changed_pixels / union_area, 6) if union_area else 0.0
     difference_sum = float(mean_delta.sum()) + float(outside) * 255.0
@@ -125,8 +132,8 @@ def _compare(
     outcome.truncated = truncated
     if truncated:
         outcome.warnings.append(f"changed region list truncated to {max_regions} entries")
-    if changed_in_overlap:
-        outcome.diff_png = _diff_png(after, mask, width, height)
+    if outcome.changed_pixels:
+        outcome.diff_png = _diff_png(after, mask, union_width, union_height)
     return outcome
 
 
@@ -195,7 +202,9 @@ def _regions(mask: BoolArray, max_regions: int) -> tuple[list[ChangedRegion], bo
 
 
 def _diff_png(after: LoadedImage, mask: BoolArray, width: int, height: int) -> bytes:
-    base = np.asarray(after.image.crop((0, 0, width, height)).convert("L"), dtype=np.uint8)
+    padded = Image.new("L", (width, height))
+    padded.paste(after.image.convert("L"), (0, 0))
+    base = np.asarray(padded, dtype=np.uint8)
     canvas = np.stack([base, base, base], axis=2)
     canvas[mask] = np.array([255, 0, 0], dtype=np.uint8)
     return encode_image(Image.fromarray(canvas, mode="RGB"), "png", 100)

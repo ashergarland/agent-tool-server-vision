@@ -44,9 +44,11 @@ The script deploys shared resources with `deployApp=false`, writes a generated A
 Key Vault, builds and pushes the image, then deploys again with `deployApp=true`. The first pass
 prevents Container Apps from starting before its Key Vault secret exists.
 
-To enable managed OCR, deploy with `deployContentUnderstanding=true` and `providerMode=azure` (or
-`auto`); the endpoint is wired into the app automatically. Check regional availability of Content
-Understanding before choosing a region.
+Hosted deployment defaults to managed OCR (`deployContentUnderstanding=true` and
+`providerMode=azure`); the endpoint is wired into the app automatically. Check regional
+availability of Content Understanding before choosing a region. For a local-only deployment, set
+`deployContentUnderstanding=false`, set `providerMode=local`, and build the image with
+`--build-arg EXTRAS=ml,azure`.
 
 ## Identity and secrets
 

@@ -89,6 +89,34 @@ async def test_drain_waits_for_in_flight_work_then_closes() -> None:
     assert error.value.code is ErrorCode.BUSY
 
 
+async def test_drain_waits_for_accepted_queued_work() -> None:
+    queue = WorkQueue(1, 4, 5)
+    first_release = asyncio.Event()
+    second_started = asyncio.Event()
+    second_release = asyncio.Event()
+
+    async def first_operation() -> None:
+        await first_release.wait()
+
+    async def second_operation() -> None:
+        second_started.set()
+        await second_release.wait()
+
+    first = asyncio.create_task(queue.run(first_operation))
+    await asyncio.sleep(0)
+    second = asyncio.create_task(queue.run(second_operation))
+    await asyncio.sleep(0)
+    drain = asyncio.create_task(queue.drain(2))
+
+    first_release.set()
+    await second_started.wait()
+    assert not drain.done()
+
+    second_release.set()
+    await asyncio.gather(first, second, drain)
+    assert queue.stats == {"active": 0, "waiting": 0}
+
+
 async def test_drain_gives_up_after_the_grace_period() -> None:
     queue = WorkQueue(1, 4, 5)
 

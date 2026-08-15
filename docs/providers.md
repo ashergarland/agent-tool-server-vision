@@ -24,8 +24,8 @@ polygon and confidence). Raw provider responses are never returned to callers.
   `src/vision_server/providers/paddle.py` and reported as the `model` field of results.
 - Languages are restricted to `VISION_PADDLE_LANGUAGES`; engines are cached in a bounded LRU.
 - Weights are downloaded on first use at runtime only. CI and hosted startup never download models:
-  readiness uses an import check, tests use fakes, and the default container image is built without
-  the `ml` extra (`--build-arg EXTRAS=ml,azure` opts in).
+  readiness uses an import check and tests use fakes. The default container includes the `ml` extra
+  so local mode works out of the box; `--build-arg EXTRAS=azure` produces a managed-only image.
 
 ## Managed provider: Azure AI Content Understanding
 

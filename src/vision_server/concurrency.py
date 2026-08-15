@@ -26,6 +26,7 @@ class WorkQueue:
         self._timeout = timeout_seconds
         self._waiting = 0
         self._active = 0
+        self._accepted = 0
         self._closed = False
         self._idle = asyncio.Event()
         self._idle.set()
@@ -44,27 +45,32 @@ class WorkQueue:
                 retryable=True,
                 details={"maxQueueDepth": self._max_waiting},
             )
+        self._accepted += 1
+        self._idle.clear()
         self._waiting += 1
         try:
-            await self._semaphore.acquire()
+            try:
+                await self._semaphore.acquire()
+            finally:
+                self._waiting -= 1
+            self._active += 1
+            try:
+                try:
+                    async with asyncio.timeout(self._timeout):
+                        return await operation()
+                except TimeoutError as exc:
+                    raise VisionError(
+                        ErrorCode.TIMEOUT,
+                        "Operation exceeded the configured timeout",
+                        retryable=True,
+                        details={"timeoutSeconds": int(self._timeout)},
+                    ) from exc
+            finally:
+                self._active -= 1
+                self._semaphore.release()
         finally:
-            self._waiting -= 1
-        self._active += 1
-        self._idle.clear()
-        try:
-            async with asyncio.timeout(self._timeout):
-                return await operation()
-        except TimeoutError as exc:
-            raise VisionError(
-                ErrorCode.TIMEOUT,
-                "Operation exceeded the configured timeout",
-                retryable=True,
-                details={"timeoutSeconds": int(self._timeout)},
-            ) from exc
-        finally:
-            self._active -= 1
-            self._semaphore.release()
-            if self._active == 0:
+            self._accepted -= 1
+            if self._accepted == 0:
                 self._idle.set()
 
     async def drain(self, grace_seconds: float) -> None:

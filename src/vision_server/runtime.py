@@ -52,7 +52,10 @@ class Runtime:
         )
 
     async def shutdown(self) -> None:
-        await self.queue.drain(self.settings.shutdown_grace_seconds)
+        try:
+            await self.queue.drain(self.settings.shutdown_grace_seconds)
+        finally:
+            await self.router.close()
 
 
 @dataclass(frozen=True)

@@ -5,8 +5,8 @@ using '../main.bicep'
 param environmentName = 'dev'
 param deployApp = false
 param containerImage = 'replace.invalid/agent-tool-server-vision:replace-me'
-param deployContentUnderstanding = false
-param providerMode = 'local'
+param deployContentUnderstanding = true
+param providerMode = 'azure'
 param assetTtlSeconds = 86400
 param cpu = '2'
 param memory = '4Gi'

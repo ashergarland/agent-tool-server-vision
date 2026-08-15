@@ -9,7 +9,9 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.datastructures import Headers
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..config import Settings
 from ..errors import ErrorCode, VisionError
@@ -21,7 +23,7 @@ from ..schemas import (
     HealthResponse,
     ReadinessResponse,
 )
-from ..security import ANONYMOUS_PRINCIPAL, match_digest, principal_from_digest
+from ..security import ANONYMOUS_PRINCIPAL, match_secret, principal_from_digest
 from .context import current_principal
 
 LOGGER = logging.getLogger("vision_server.http")
@@ -44,29 +46,104 @@ def authenticate(request: Request) -> str:
         presented = request.headers.get("x-api-key", "").strip()
     if not presented:
         raise VisionError(ErrorCode.UNAUTHORIZED, "Missing credentials")
-    digest = match_digest(presented, settings.api_key_digests)
+    digest = match_secret(presented, settings.api_key_credentials)
     if digest is None:
         raise VisionError(ErrorCode.UNAUTHORIZED, "Invalid credentials")
     return principal_from_digest(digest)
 
 
-class BodyLimitMiddleware(BaseHTTPMiddleware):
+class BodyLimitMiddleware:
     """Rejects oversized JSON bodies before they are buffered."""
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        settings: Settings = request.app.state.runtime.settings
-        if request.url.path.startswith("/tools/") or request.url.path.startswith("/mcp"):
-            declared = request.headers.get("content-length")
-            if declared and declared.isdigit() and int(declared) > settings.max_json_bytes:
-                error = VisionError(
-                    ErrorCode.PAYLOAD_TOO_LARGE,
-                    "Request body exceeds the configured JSON limit",
-                    details={"maxBytes": settings.max_json_bytes},
+    def __init__(self, app: ASGIApp, *, settings: Settings) -> None:
+        self._app = app
+        self._max_bytes = settings.max_json_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = str(scope.get("path", ""))
+        if scope["type"] != "http" or not (path.startswith("/tools/") or path.startswith("/mcp")):
+            await self._app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        declared = headers.get("content-length")
+        if declared is not None:
+            try:
+                declared_bytes = int(declared)
+            except ValueError:
+                await self._send_error(
+                    scope,
+                    receive,
+                    send,
+                    VisionError(ErrorCode.INVALID_INPUT, "Content-Length must be an integer"),
+                    headers,
                 )
-                return _error_response(error, request.headers.get(REQUEST_ID_HEADER, ""))
-        return await call_next(request)
+                return
+            if declared_bytes < 0:
+                await self._send_error(
+                    scope,
+                    receive,
+                    send,
+                    VisionError(ErrorCode.INVALID_INPUT, "Content-Length cannot be negative"),
+                    headers,
+                )
+                return
+            if declared_bytes > self._max_bytes:
+                await self._send_error(scope, receive, send, self._too_large(), headers)
+                return
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                await self._app(scope, _replay_message(message), send)
+                return
+            if message["type"] != "http.request":
+                continue
+            body.extend(message.get("body", b""))
+            if len(body) > self._max_bytes:
+                await self._send_error(scope, receive, send, self._too_large(), headers)
+                return
+            if not message.get("more_body", False):
+                break
+
+        replayed = False
+
+        async def replay_receive() -> Message:
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            return await receive()
+
+        await self._app(scope, replay_receive, send)
+
+    def _too_large(self) -> VisionError:
+        return VisionError(
+            ErrorCode.PAYLOAD_TOO_LARGE,
+            "Request body exceeds the configured JSON limit",
+            details={"maxBytes": self._max_bytes},
+        )
+
+    @staticmethod
+    async def _send_error(
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        error: VisionError,
+        headers: Headers,
+    ) -> None:
+        request_id = headers.get(REQUEST_ID_HEADER) or uuid.uuid4().hex
+        response = _error_response(error, request_id)
+        response.headers[REQUEST_ID_HEADER] = request_id
+        await response(scope, receive, send)
+
+
+def _replay_message(message: Message) -> Receive:
+    async def replay() -> Message:
+        return message
+
+    return replay
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -142,7 +219,7 @@ def create_app(
     )
     app.state.runtime = active_runtime
     app.add_middleware(RequestContextMiddleware)
-    app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(BodyLimitMiddleware, settings=config)
 
     @app.exception_handler(VisionError)
     async def vision_error_handler(request: Request, exc: VisionError) -> JSONResponse:
@@ -163,10 +240,14 @@ def create_app(
             components.append(
                 ComponentStatus(name=name, status=status, detail=detail)  # type: ignore[arg-type]
             )
+        statuses = {component.name: component.status for component in components}
+        required_components = {
+            "registry",
+            "storage",
+            *active_runtime.router.required_health_components,
+        }
         required_ok = all(
-            component.status == "ok"
-            for component in components
-            if component.name in {"registry", "storage"}
+            statuses.get(component_name) == "ok" for component_name in required_components
         )
         if not required_ok:
             response.status_code = 503

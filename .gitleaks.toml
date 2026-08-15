@@ -6,3 +6,15 @@ description = "README API-key placeholder from earlier commits"
 paths = ['''README\.md''']
 regexTarget = "match"
 regexes = ['''replace-with-a-random-32-character-key''']
+
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  description = "Public Azure Key Vault built-in role definition IDs"
+  condition = "AND"
+  regexTarget = "secret"
+  paths = ['''^infra/modules/key-vault\.bicep$''']
+  regexes = [
+    '''^(?:4633458b-17de-408a-b874-0445c86b69e6|b86a8fe4-44ce-4948-aee5-eccb2c155cd7)$''',
+  ]

@@ -39,11 +39,14 @@ class ContentUnderstandingProvider:
         *,
         transport: Any | None = None,
         token_provider: Any | None = None,
+        credential: Any | None = None,
         poll_interval: float = _POLL_INTERVAL_SECONDS,
     ) -> None:
         self._settings = settings
         self._transport = transport
         self._token_provider = token_provider
+        self._credential = credential
+        self._credential_lock = asyncio.Lock()
         self._poll_interval = poll_interval
 
     @property
@@ -69,6 +72,13 @@ class ContentUnderstandingProvider:
         if not self.configured:
             return "unavailable", "endpoint is not configured"
         return "ok", "configuration present; not called during readiness"
+
+    async def close(self) -> None:
+        credential = self._credential
+        self._credential = None
+        close = getattr(credential, "close", None)
+        if close is not None:
+            await asyncio.to_thread(close)
 
     # -- internals ----------------------------------------------------------
 
@@ -131,13 +141,16 @@ class ContentUnderstandingProvider:
         if self._token_provider is not None:
             token = self._token_provider()
             return await token if asyncio.iscoroutine(token) else str(token)
+        if self._credential is None:
+            async with self._credential_lock:
+                if self._credential is None:
+                    try:
+                        from azure.identity import DefaultAzureCredential
+                    except ImportError as exc:  # pragma: no cover - optional dependency
+                        raise provider_unavailable("azure-identity is not installed") from exc
+                    self._credential = DefaultAzureCredential()
         try:
-            from azure.identity import DefaultAzureCredential
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise provider_unavailable("azure-identity is not installed") from exc
-        credential = DefaultAzureCredential()
-        try:
-            access = await asyncio.to_thread(credential.get_token, CREDENTIAL_SCOPE)
+            access = await asyncio.to_thread(self._credential.get_token, CREDENTIAL_SCOPE)
         except Exception as exc:  # noqa: BLE001 - SDK errors must not leak
             raise provider_auth_error("Managed identity token acquisition failed") from exc
         return str(access.token)

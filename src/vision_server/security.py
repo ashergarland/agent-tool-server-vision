@@ -1,11 +1,4 @@
-"""Authentication helpers: constant-time digests and opaque principal IDs.
-
-API keys are machine-generated, high-entropy random tokens (see
-``scripts/bootstrap/provision.sh``), never user-chosen passwords. They are
-therefore not vulnerable to offline guessing, and a fast keyed digest is used so
-that authentication adds no meaningful latency to every request. A slow password
-hash such as PBKDF2 or Argon2 would be required only for low-entropy secrets.
-"""
+"""Authentication helpers: hardened digests and opaque principal IDs."""
 
 from __future__ import annotations
 
@@ -14,33 +7,42 @@ import hmac
 import secrets
 
 _PRINCIPAL_PREFIX = "p_"
-_KEY_DOMAIN = b"vision-server/api-key/v1"
+_KEY_SALT = b"vision-server/api-key/v2"
+_KEY_ITERATIONS = 600_000
 _PRINCIPAL_DOMAIN = b"vision-server/principal/v1"
 _BUCKET_DOMAIN = b"vision-server/bucket/v1"
 
 
-def _keyed_digest(domain: bytes, value: str) -> str:
-    return hmac.new(domain, value.encode("utf-8"), hashlib.sha256).hexdigest()
+def _opaque_identifier(domain: bytes, value: str) -> str:
+    return hashlib.blake2b(
+        value.encode("utf-8"),
+        key=domain,
+        digest_size=32,
+    ).hexdigest()
 
 
 def digest_secret(api_key: str) -> str:
-    """Return a keyed digest of an API key; raw keys are never stored."""
-    return _keyed_digest(_KEY_DOMAIN, api_key)
+    """Return a deterministic password KDF digest; raw API keys are never stored."""
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        api_key.encode("utf-8"),
+        _KEY_SALT,
+        _KEY_ITERATIONS,
+    ).hex()
 
 
-def match_digest(candidate: str, digests: tuple[str, ...]) -> str | None:
-    """Constant-time comparison of a presented key against configured digests."""
-    presented = digest_secret(candidate)
+def match_secret(candidate: str, credentials: tuple[tuple[str, str], ...]) -> str | None:
+    """Return the cached digest for a constant-time raw API-key match."""
     matched: str | None = None
-    for digest in digests:
-        if hmac.compare_digest(presented, digest):
+    for configured_key, digest in credentials:
+        if hmac.compare_digest(candidate, configured_key):
             matched = digest
     return matched
 
 
 def principal_from_digest(digest: str) -> str:
     """Derive a stable, opaque principal identifier from a key digest."""
-    return _PRINCIPAL_PREFIX + _keyed_digest(_PRINCIPAL_DOMAIN, digest)[:32]
+    return _PRINCIPAL_PREFIX + _opaque_identifier(_PRINCIPAL_DOMAIN, digest)[:32]
 
 
 ANONYMOUS_PRINCIPAL = _PRINCIPAL_PREFIX + "local-development"
@@ -53,4 +55,4 @@ def new_token(byte_length: int = 24) -> str:
 
 def principal_bucket(principal: str) -> str:
     """Stable, non-reversible directory or blob prefix for a principal."""
-    return _keyed_digest(_BUCKET_DOMAIN, principal)[:32]
+    return _opaque_identifier(_BUCKET_DOMAIN, principal)[:32]

@@ -7,6 +7,7 @@ repository never embeds account, tenant, or region specific defaults.
 from __future__ import annotations
 
 from enum import StrEnum
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Literal
 
@@ -132,11 +133,15 @@ class Settings(BaseSettings):
     def allowed_language_set(self) -> frozenset[str]:
         return frozenset(_split(self.paddle_languages)) or frozenset({"en"})
 
-    @property
-    def api_key_digests(self) -> tuple[str, ...]:
+    @cached_property
+    def api_key_credentials(self) -> tuple[tuple[str, str], ...]:
         from .security import digest_secret
 
-        return tuple(digest_secret(key) for key in _split(self.api_keys))
+        return tuple((key, digest_secret(key)) for key in _split(self.api_keys))
+
+    @property
+    def api_key_digests(self) -> tuple[str, ...]:
+        return tuple(digest for _key, digest in self.api_key_credentials)
 
     @property
     def allowed_root_paths(self) -> tuple[Path, ...]:

@@ -9,7 +9,14 @@ from ..config import ProviderMode, Settings
 from ..errors import ErrorCode
 from ..imaging import LoadedImage
 from ..schemas import ProcessingMode
-from .base import OcrProvider, OcrResult, ProviderError, provider_timeout, provider_unavailable
+from .base import (
+    ClosableOcrProvider,
+    OcrProvider,
+    OcrResult,
+    ProviderError,
+    provider_timeout,
+    provider_unavailable,
+)
 from .content_understanding import ContentUnderstandingProvider
 from .paddle import PaddleOcrProvider
 
@@ -59,6 +66,12 @@ class OcrRouter:
             return ProcessingMode.AZURE
         return ProcessingMode.AZURE if self.azure_configured else ProcessingMode.LOCAL
 
+    @property
+    def required_health_components(self) -> frozenset[str]:
+        if self.preferred_mode() is ProcessingMode.AZURE:
+            return frozenset({"provider:azure_content_understanding"})
+        return frozenset({"provider:local_paddleocr"})
+
     async def analyze(
         self, image: LoadedImage, language: str, requested: ProcessingMode
     ) -> RoutedResult:
@@ -100,3 +113,12 @@ class OcrRouter:
             azure_status, azure_detail = await self._azure.health()
             statuses.append(("provider:azure_content_understanding", azure_status, azure_detail))
         return statuses
+
+    async def close(self) -> None:
+        seen: set[int] = set()
+        for provider in (self._local, self._azure):
+            if id(provider) in seen:
+                continue
+            seen.add(id(provider))
+            if isinstance(provider, ClosableOcrProvider):
+                await provider.close()

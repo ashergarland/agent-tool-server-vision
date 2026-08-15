@@ -6,10 +6,10 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 WORKDIR /build
 
-# Optional extras baked into the image. The default keeps the image small and
-# runs OCR through the managed provider; build with
-# `--build-arg EXTRAS=ml,azure` to include the local PaddleOCR provider.
-ARG EXTRAS=azure
+# The default supports both local and managed OCR so the image matches the
+# application's local default. Use `--build-arg EXTRAS=azure` for a smaller
+# managed-only deployment.
+ARG EXTRAS=ml,azure
 
 # Dependency layer: changes only when the project metadata changes.
 COPY pyproject.toml README.md ./

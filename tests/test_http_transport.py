@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from vision_server.config import Settings
+from vision_server.providers.router import OcrRouter
 from vision_server.registry import TOOLS
 from vision_server.runtime import Runtime
 from vision_server.transports.http import create_app
 
-from .conftest import API_KEY, local_reference, png_bytes, write_png
+from .conftest import API_KEY, FakeOcrProvider, local_reference, png_bytes, write_png
 
 
 def test_health_and_openapi_document(client: TestClient) -> None:
@@ -35,6 +39,20 @@ def test_readiness_reports_components(client: TestClient) -> None:
     names = {component["name"] for component in body["components"]}
     assert {"registry", "storage", "provider:local_paddleocr"} <= names
     assert body["configuration"]["environment"] == "development"
+
+
+def test_readiness_requires_the_selected_provider(settings: Settings, runtime: Runtime) -> None:
+    runtime.router = OcrRouter(
+        settings,
+        local=FakeOcrProvider(
+            "local_paddleocr", health_status=("unavailable", "paddleocr is not installed")
+        ),
+        azure=FakeOcrProvider("azure_content_understanding"),
+    )
+    with TestClient(create_app(runtime=runtime)) as unavailable:
+        response = unavailable.get("/ready")
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
 
 
 def test_authentication_is_required(runtime: Runtime, allowed_root: Path) -> None:
@@ -71,7 +89,15 @@ def test_authentication_can_be_disabled_only_outside_production(tmp_path: Path) 
         auth_enabled=False,
         asset_root=str(tmp_path / "assets"),
     )
-    with TestClient(create_app(runtime=Runtime(settings))) as anonymous:
+    runtime = Runtime(
+        settings,
+        router=OcrRouter(
+            settings,
+            local=FakeOcrProvider("local_paddleocr"),
+            azure=FakeOcrProvider("azure_content_understanding"),
+        ),
+    )
+    with TestClient(create_app(runtime=runtime)) as anonymous:
         assert anonymous.get("/ready").status_code == 200
 
 
@@ -119,13 +145,50 @@ def test_rejects_oversized_json_bodies(client: TestClient, allowed_root: Path) -
 
     runtime: Runtime = client.app.state.runtime  # type: ignore[attr-defined]
     runtime.settings.__dict__["max_json_bytes"] = 1024
-    big = client.post(
-        "/tools/extract_text_and_layout",
-        json={"image": local_reference(path), "language": "e" * 5000},
-    )
+    with TestClient(create_app(runtime=runtime)) as limited:
+        limited.headers.update({"authorization": "Bearer " + API_KEY})
+        big = limited.post(
+            "/tools/extract_text_and_layout",
+            json={"image": local_reference(path), "language": "e" * 5000},
+        )
     assert big.status_code == 413
     assert big.json()["error"]["code"] == "payload_too_large"
+    assert big.json()["error"]["requestId"] == big.headers["x-request-id"]
     runtime.settings.__dict__["max_json_bytes"] = 1_000_000
+
+
+async def test_rejects_oversized_chunked_json_body(runtime: Runtime, allowed_root: Path) -> None:
+    runtime.settings.__dict__["max_json_bytes"] = 1024
+    path = write_png(allowed_root / "chunked.png")
+    encoded = json.dumps({"image": local_reference(path), "language": "e" * 5000}).encode()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        for offset in range(0, len(encoded), 256):
+            yield encoded[offset : offset + 256]
+
+    transport = httpx.ASGITransport(app=create_app(runtime=runtime))
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"authorization": "Bearer " + API_KEY},
+    ) as chunked_client:
+        response = await chunked_client.post(
+            "/tools/extract_text_and_layout",
+            content=chunks(),
+            headers={"content-type": "application/json"},
+        )
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"
+
+
+def test_rejects_invalid_content_length(client: TestClient) -> None:
+    response = client.post(
+        "/tools/extract_text_and_layout",
+        content=b"{}",
+        headers={"content-length": "-1", "content-type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_input"
 
 
 def test_asset_upload_download_and_isolation(client: TestClient) -> None:

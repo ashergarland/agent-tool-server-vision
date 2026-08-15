@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,6 +15,7 @@ from vision_server.providers.base import provider_auth_error, provider_unavailab
 from vision_server.providers.content_understanding import ContentUnderstandingProvider
 from vision_server.providers.paddle import MODEL_PROVENANCE, PaddleOcrProvider
 from vision_server.providers.router import OcrRouter
+from vision_server.runtime import Runtime
 from vision_server.schemas import ProcessingMode
 
 from .conftest import FakeOcrProvider, loaded_image
@@ -52,6 +54,20 @@ def azure_settings(**overrides: Any) -> Settings:
 
 def transport_for(handler: Any) -> httpx.MockTransport:
     return httpx.MockTransport(handler)
+
+
+class FakeCredential:
+    def __init__(self) -> None:
+        self.requests = 0
+        self.closed = False
+
+    def get_token(self, scope: str) -> object:
+        assert scope == "https://cognitiveservices.azure.com/.default"
+        self.requests += 1
+        return type("AccessToken", (), {"token": "credential-token"})()
+
+    def close(self) -> None:
+        self.closed = True
 
 
 async def test_content_understanding_normalizes_results() -> None:
@@ -94,6 +110,45 @@ async def test_content_understanding_accepts_synchronous_results() -> None:
     )
     result = await provider.analyze(loaded_image(), "en")
     assert result.markdown == "# Invoice"
+
+
+async def test_content_understanding_reuses_and_closes_credential() -> None:
+    credential = FakeCredential()
+    provider = ContentUnderstandingProvider(
+        azure_settings(),
+        transport=transport_for(lambda request: httpx.Response(200, json=ANALYZE_RESULT)),
+        credential=credential,
+    )
+    await provider.analyze(loaded_image(), "en")
+    await provider.analyze(loaded_image(), "en")
+    await provider.close()
+
+    assert credential.requests == 2
+    assert credential.closed is True
+
+
+async def test_runtime_shutdown_closes_providers(tmp_path: Path) -> None:
+    class ClosableProvider(FakeOcrProvider):
+        closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    settings = azure_settings(
+        asset_root=str(tmp_path / "assets"),
+        shutdown_grace_seconds=0,
+    )
+    managed = ClosableProvider("azure_content_understanding")
+    runtime = Runtime(
+        settings,
+        router=OcrRouter(
+            settings,
+            local=FakeOcrProvider("local_paddleocr"),
+            azure=managed,
+        ),
+    )
+    await runtime.shutdown()
+    assert managed.closed is True
 
 
 @pytest.mark.parametrize(

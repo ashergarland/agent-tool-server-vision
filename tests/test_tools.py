@@ -236,6 +236,30 @@ async def test_compare_handles_unequal_sizes(context: ToolContext, allowed_root:
     assert any("non-overlapping" in warning for warning in result.meta.warnings)
 
 
+async def test_compare_uses_true_union_for_crossed_dimensions(
+    context: ToolContext, allowed_root: Path
+) -> None:
+    before = write_png(allowed_root / "before-tall.png", 10, 20)
+    after = write_png(allowed_root / "after-wide.png", 20, 10)
+    result = await compare_images(
+        CompareImagesInput(
+            before=reference(before),
+            after=reference(after),
+            include_diff=True,
+        ),
+        context,
+    )
+
+    assert result.changed_pixels == 200
+    assert result.changed_ratio == pytest.approx(2 / 3)
+    assert sum(region.changed_pixels for region in result.regions) == 200
+    assert result.diff_artifact_id is not None
+    _record, payload = await context.assets.get(context.principal, result.diff_artifact_id)
+    diff = Image.open(io.BytesIO(payload))
+    assert diff.size == (20, 20)
+    assert diff.getpixel((15, 15)) == (0, 0, 0)
+
+
 async def test_compare_truncates_region_list(context: ToolContext, allowed_root: Path) -> None:
     before = write_png(allowed_root / "before.png", 128, 128)
     speckled = Image.new("RGB", (128, 128), "white")

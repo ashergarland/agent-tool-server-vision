@@ -7,7 +7,9 @@ account key, connection string, or SAS URL is ever constructed or returned.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +27,9 @@ from .base import (
     quota_exceeded,
     too_large,
 )
+
+LOGGER = logging.getLogger("vision_server.assets.blob")
+_QUOTA_LOCK_PREFIX = "_quota"
 
 
 class AzureBlobAssetStore:
@@ -131,7 +136,6 @@ class AzureBlobAssetStore:
     def _upload(
         self, principal: str, payload: bytes, content_type: str, kind: AssetKind
     ) -> AssetRecord:
-        self._enforce_quota(principal, len(payload), kind)
         asset_id = ID_PREFIX[kind] + new_token()
         created, expires = expiry_from(self._ttl_seconds)
         record = AssetRecord(
@@ -148,17 +152,20 @@ class AzureBlobAssetStore:
             settings: Any = ContentSettings(content_type=content_type)
         except ImportError:  # pragma: no cover - exercised through fakes
             settings = None
-        client = self._container_client(kind).get_blob_client(self._blob_name(principal, asset_id))
-        client.upload_blob(
-            payload,
-            overwrite=False,
-            content_settings=settings,
-            metadata={
-                "principal": principal,
-                "expiresat": expires.isoformat(),
-                "createdat": created.isoformat(),
-            },
-        )
+        container = self._container_client(kind)
+        with self._quota_lease(principal, kind):
+            self._enforce_quota(principal, len(payload), container)
+            client = container.get_blob_client(self._blob_name(principal, asset_id))
+            client.upload_blob(
+                payload,
+                overwrite=False,
+                content_settings=settings,
+                metadata={
+                    "principal": principal,
+                    "expiresat": expires.isoformat(),
+                    "createdat": created.isoformat(),
+                },
+            )
         return record
 
     def _download(self, principal: str, asset_id: str) -> tuple[AssetRecord, bytes]:
@@ -185,27 +192,66 @@ class AzureBlobAssetStore:
         return record, bytes(payload)
 
     def _delete(self, principal: str, asset_id: str) -> None:
-        client = self._container_client(kind_of(asset_id)).get_blob_client(
-            self._blob_name(principal, asset_id)
-        )
-        try:
-            client.delete_blob()
-        except Exception:  # noqa: BLE001 - deletion is best effort
-            return
+        kind = kind_of(asset_id)
+        client = self._container_client(kind).get_blob_client(self._blob_name(principal, asset_id))
+        with self._quota_lease(principal, kind):
+            try:
+                client.delete_blob()
+            except Exception as exc:  # noqa: BLE001 - normalize Azure SDK errors
+                if _is_sdk_error(exc, "ResourceNotFoundError"):
+                    return
+                raise _storage_unavailable("Asset deletion failed") from exc
 
-    def _enforce_quota(self, principal: str, incoming_bytes: int, kind: AssetKind) -> None:
+    def _enforce_quota(self, principal: str, incoming_bytes: int, container: Any) -> None:
         prefix = principal_bucket(principal) + "/"
         total = 0
         count = 0
         try:
-            blobs = self._container_client(kind).list_blobs(name_starts_with=prefix)
-        except Exception:  # noqa: BLE001 - quota accounting is best effort
-            return
+            blobs = container.list_blobs(name_starts_with=prefix, include=["metadata"])
+        except Exception as exc:  # noqa: BLE001 - normalize Azure SDK errors
+            raise _storage_unavailable("Asset quota accounting failed") from exc
+        now = datetime.now(UTC)
         for blob in blobs:
+            metadata = dict(getattr(blob, "metadata", {}) or {})
+            expires_at = _try_parse(metadata.get("expiresat"))
+            if expires_at is not None and expires_at <= now:
+                self._delete_expired(container, str(getattr(blob, "name", "")))
+                continue
             count += 1
             total += int(getattr(blob, "size", 0) or 0)
         if count + 1 > self._quota_count or total + incoming_bytes > self._quota_bytes:
             raise quota_exceeded()
+
+    @contextmanager
+    def _quota_lease(self, principal: str, kind: AssetKind) -> Iterator[None]:
+        lock_name = f"{_QUOTA_LOCK_PREFIX}/{principal_bucket(principal)}"
+        client = self._container_client(kind).get_blob_client(lock_name)
+        try:
+            client.upload_blob(b"", overwrite=False)
+        except Exception as exc:  # noqa: BLE001 - normalize Azure SDK errors
+            if not _is_sdk_error(exc, "ResourceExistsError"):
+                raise _storage_unavailable("Asset quota lock creation failed") from exc
+        try:
+            lease = client.acquire_lease(lease_duration=60)
+        except Exception as exc:  # noqa: BLE001 - normalize Azure SDK errors
+            raise _storage_unavailable("Asset quota lock is busy") from exc
+        try:
+            yield
+        finally:
+            try:
+                lease.release()
+            except Exception:  # noqa: BLE001 - lease expires without compromising quota safety
+                LOGGER.warning("failed to release asset quota lease", exc_info=True)
+
+    @staticmethod
+    def _delete_expired(container: Any, blob_name: str) -> None:
+        if not blob_name:
+            raise _storage_unavailable("Asset quota metadata is malformed")
+        try:
+            container.get_blob_client(blob_name).delete_blob()
+        except Exception as exc:  # noqa: BLE001 - normalize Azure SDK errors
+            if not _is_sdk_error(exc, "ResourceNotFoundError"):
+                raise _storage_unavailable("Expired asset cleanup failed") from exc
 
 
 def _parse(value: object) -> datetime:
@@ -213,3 +259,18 @@ def _parse(value: object) -> datetime:
         return datetime.fromisoformat(str(value))
     except (TypeError, ValueError):
         return datetime.now(UTC)
+
+
+def _try_parse(value: object) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_sdk_error(error: Exception, class_name: str) -> bool:
+    return any(base.__name__ == class_name for base in type(error).__mro__)
+
+
+def _storage_unavailable(message: str) -> VisionError:
+    return VisionError(ErrorCode.PROVIDER_UNAVAILABLE, message, retryable=True)
