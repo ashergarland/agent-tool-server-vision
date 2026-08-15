@@ -30,11 +30,10 @@ def test_configured_digests_are_cached() -> None:
     assert len(settings.api_key_digests) == 2
 
 
-def test_opaque_identifiers_are_stable_and_domain_separated() -> None:
+def test_opaque_identifiers_reuse_the_hardened_digest_prefix() -> None:
     digest = digest_secret("first-secret")
     principal = principal_from_digest(digest)
 
-    assert principal == principal_from_digest(digest)
-    assert principal.startswith("p_")
-    assert principal_bucket(principal) == principal_bucket(principal)
-    assert principal_bucket(principal) not in principal
+    assert principal == f"p_{digest[:32]}"
+    assert principal_bucket(principal) == digest[:32]
+    assert principal_bucket("local-development") == "local-development"

@@ -9,16 +9,6 @@ import secrets
 _PRINCIPAL_PREFIX = "p_"
 _KEY_SALT = b"vision-server/api-key/v2"
 _KEY_ITERATIONS = 600_000
-_PRINCIPAL_DOMAIN = b"vision-server/principal/v1"
-_BUCKET_DOMAIN = b"vision-server/bucket/v1"
-
-
-def _opaque_identifier(domain: bytes, value: str) -> str:
-    return hashlib.blake2b(
-        value.encode("utf-8"),
-        key=domain,
-        digest_size=32,
-    ).hexdigest()
 
 
 def digest_secret(api_key: str) -> str:
@@ -42,7 +32,7 @@ def match_secret(candidate: str, credentials: tuple[tuple[str, str], ...]) -> st
 
 def principal_from_digest(digest: str) -> str:
     """Derive a stable, opaque principal identifier from a key digest."""
-    return _PRINCIPAL_PREFIX + _opaque_identifier(_PRINCIPAL_DOMAIN, digest)[:32]
+    return _PRINCIPAL_PREFIX + digest[:32]
 
 
 ANONYMOUS_PRINCIPAL = _PRINCIPAL_PREFIX + "local-development"
@@ -55,4 +45,6 @@ def new_token(byte_length: int = 24) -> str:
 
 def principal_bucket(principal: str) -> str:
     """Stable, non-reversible directory or blob prefix for a principal."""
-    return _opaque_identifier(_BUCKET_DOMAIN, principal)[:32]
+    if principal.startswith(_PRINCIPAL_PREFIX):
+        return principal.removeprefix(_PRINCIPAL_PREFIX)
+    return principal
