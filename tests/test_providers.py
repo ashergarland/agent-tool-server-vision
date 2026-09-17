@@ -251,6 +251,21 @@ async def test_content_understanding_requires_configuration() -> None:
         await provider.analyze(loaded_image(), "en")
 
 
+async def test_content_understanding_health_requires_provider_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "vision_server.providers.content_understanding.importlib.util.find_spec",
+        lambda _name: None,
+    )
+    provider = ContentUnderstandingProvider(azure_settings())
+    status, detail = await provider.health()
+    assert status == "unavailable"
+    assert detail is not None
+    assert "httpx" in detail
+    assert "azure-identity" in detail
+
+
 # -- local provider ---------------------------------------------------------
 
 
@@ -365,6 +380,20 @@ async def test_router_auto_prefers_configured_azure_and_falls_back(
     azure_provider._error = provider_auth_error("denied")  # noqa: SLF001
     with pytest.raises(VisionError):
         await router.analyze(loaded_image(), "en", ProcessingMode.AUTO)
+
+
+async def test_router_azure_configuration_never_uses_local_fallback(
+    local_provider: FakeOcrProvider, azure_provider: FakeOcrProvider
+) -> None:
+    router = router_for("azure", local_provider, azure_provider)
+    azure_provider._error = provider_unavailable("down")  # noqa: SLF001
+
+    with pytest.raises(VisionError):
+        await router.analyze(loaded_image(), "en", ProcessingMode.AUTO)
+    with pytest.raises(VisionError):
+        await router.analyze(loaded_image(), "en", ProcessingMode.LOCAL)
+
+    assert local_provider.calls == []
 
 
 async def test_router_times_out_slow_providers(

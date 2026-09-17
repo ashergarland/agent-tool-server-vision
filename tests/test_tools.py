@@ -9,6 +9,7 @@ import pytest
 from PIL import Image
 from pydantic import ValidationError
 
+import vision_server.tools.compare as compare_module
 from vision_server.errors import ErrorCode, VisionError
 from vision_server.providers.base import (
     OcrBlock,
@@ -236,6 +237,29 @@ async def test_compare_handles_unequal_sizes(context: ToolContext, allowed_root:
     assert any("non-overlapping" in warning for warning in result.meta.warnings)
 
 
+async def test_compare_merges_boundary_changes_with_non_overlapping_regions(
+    context: ToolContext, allowed_root: Path
+) -> None:
+    before = write_png(allowed_root / "before.png", 20, 10)
+    changed = Image.new("RGB", (40, 10), "white")
+    changed.putpixel((19, 5), (0, 0, 0))
+    after = allowed_root / "after.png"
+    changed.save(after, format="PNG")
+
+    result = await compare_images(
+        CompareImagesInput(
+            before=reference(before),
+            after=reference(after),
+            max_regions=1,
+        ),
+        context,
+    )
+
+    assert result.meta.truncated is False
+    assert result.regions[0].changed_pixels == 201
+    assert result.regions[0].box == BoundingBox(x=19, y=0, width=21, height=10)
+
+
 async def test_compare_uses_true_union_for_crossed_dimensions(
     context: ToolContext, allowed_root: Path
 ) -> None:
@@ -260,6 +284,55 @@ async def test_compare_uses_true_union_for_crossed_dimensions(
     assert diff.getpixel((15, 15)) == (0, 0, 0)
 
 
+async def test_compare_crossed_dimensions_do_not_allocate_the_bounding_canvas(
+    context: ToolContext,
+    allowed_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = write_png(allowed_root / "before-wide.png", 1000, 8)
+    after = write_png(allowed_root / "after-tall.png", 8, 1000)
+    original_zeros = compare_module.np.zeros
+
+    def bounded_zeros(shape: object, *args: object, **kwargs: object) -> object:
+        if (
+            isinstance(shape, tuple)
+            and len(shape) == 2
+            and all(isinstance(value, int) for value in shape)
+            and shape[0] * shape[1] > 100_000
+        ):
+            raise AssertionError("comparison allocated its sparse union bounding canvas")
+        return original_zeros(shape, *args, **kwargs)
+
+    monkeypatch.setattr(compare_module.np, "zeros", bounded_zeros)
+    result = await compare_images(
+        CompareImagesInput(before=reference(before), after=reference(after)),
+        context,
+    )
+
+    assert result.changed_pixels == 15_872
+    assert sum(region.changed_pixels for region in result.regions) == 15_872
+    assert result.diff_artifact_id is None
+
+
+async def test_compare_omits_diff_when_the_bounding_canvas_exceeds_the_pixel_limit(
+    context: ToolContext, allowed_root: Path
+) -> None:
+    context.runtime.settings = context.settings.model_copy(update={"max_image_pixels": 1024})
+    before = write_png(allowed_root / "before-wide.png", 64, 16)
+    after = write_png(allowed_root / "after-tall.png", 16, 64)
+    result = await compare_images(
+        CompareImagesInput(
+            before=reference(before),
+            after=reference(after),
+            include_diff=True,
+        ),
+        context,
+    )
+
+    assert result.diff_artifact_id is None
+    assert any("bounding canvas" in warning for warning in result.meta.warnings)
+
+
 async def test_compare_truncates_region_list(context: ToolContext, allowed_root: Path) -> None:
     before = write_png(allowed_root / "before.png", 128, 128)
     speckled = Image.new("RGB", (128, 128), "white")
@@ -272,6 +345,21 @@ async def test_compare_truncates_region_list(context: ToolContext, allowed_root:
     )
     assert len(result.regions) == 2
     assert result.meta.truncated is True
+
+
+def test_compare_reports_component_scan_truncation() -> None:
+    mask = compare_module.np.zeros(
+        ((compare_module.MAX_COMPONENTS + 1) * compare_module.TILE_SIZE * 2, 1),
+        dtype=bool,
+    )
+    mask[:: compare_module.TILE_SIZE * 2, 0] = True
+
+    regions, truncated = compare_module._regions(  # noqa: SLF001
+        mask, compare_module.MAX_COMPONENTS
+    )
+
+    assert len(regions) == compare_module.MAX_COMPONENTS
+    assert truncated is True
 
 
 # -- optimize_image_region --------------------------------------------------

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -48,7 +49,13 @@ async def compare_images(payload: CompareImagesInput, context: ToolContext) -> C
     before = await load_image(payload.before, context.settings, context.assets, context.principal)
     after = await load_image(payload.after, context.settings, context.assets, context.principal)
     comparison = await asyncio.to_thread(
-        _compare, before, after, payload.threshold, payload.max_regions
+        _compare,
+        before,
+        after,
+        payload.threshold,
+        payload.max_regions,
+        payload.include_diff,
+        context.settings.max_image_pixels,
     )
 
     warnings = list(comparison.warnings)
@@ -61,7 +68,7 @@ async def compare_images(payload: CompareImagesInput, context: ToolContext) -> C
             AssetKind.ARTIFACT,
         )
         diff_artifact_id = record.asset_id
-    elif payload.include_diff:
+    elif payload.include_diff and comparison.changed_pixels == 0:
         warnings.append("diff image was not produced because no pixels changed")
 
     return CompareImagesOutput(
@@ -91,8 +98,21 @@ class _Comparison:
         self.diff_png: bytes | None = None
 
 
+@dataclass(frozen=True)
+class _RegionComponent:
+    region: ChangedRegion
+    touches_right_edge: bool
+    touches_bottom_edge: bool
+    outside: bool = False
+
+
 def _compare(
-    before: LoadedImage, after: LoadedImage, threshold: float, max_regions: int
+    before: LoadedImage,
+    after: LoadedImage,
+    threshold: float,
+    max_regions: int,
+    include_diff: bool,
+    max_diff_pixels: int,
 ) -> _Comparison:
     outcome = _Comparison()
     overlap_width = min(before.width, after.width)
@@ -112,14 +132,7 @@ def _compare(
     mean_delta = delta.mean(axis=2)
 
     cutoff = threshold * 255.0
-    mask = np.zeros((union_height, union_width), dtype=bool)
-    before_presence = np.zeros_like(mask)
-    after_presence = np.zeros_like(mask)
-    before_presence[: before.height, : before.width] = True
-    after_presence[: after.height, : after.width] = True
-    mask[before_presence ^ after_presence] = True
     overlap_mask = max_delta > cutoff
-    mask[:overlap_height, :overlap_width] = overlap_mask
 
     changed_in_overlap = int(overlap_mask.sum())
     outcome.changed_pixels = changed_in_overlap + outside
@@ -127,14 +140,146 @@ def _compare(
     difference_sum = float(mean_delta.sum()) + float(outside) * 255.0
     outcome.similarity = round(max(0.0, 1.0 - difference_sum / (union_area * 255.0)), 6)
 
-    regions, truncated = _regions(mask, max_regions)
-    outcome.regions = regions
-    outcome.truncated = truncated
-    if truncated:
+    overlap_regions, overlap_truncated = _regions(overlap_mask, MAX_COMPONENTS)
+    merged_regions = _merge_regions(
+        overlap_regions,
+        _outside_regions(before, after, overlap_width, overlap_height),
+        overlap_width,
+        overlap_height,
+    )
+    merged_regions.sort(key=lambda region: (-region.changed_pixels, region.box.y, region.box.x))
+    outcome.regions = merged_regions[:max_regions]
+    outcome.truncated = overlap_truncated or len(merged_regions) > max_regions
+    if outcome.truncated:
         outcome.warnings.append(f"changed region list truncated to {max_regions} entries")
-    if outcome.changed_pixels:
-        outcome.diff_png = _diff_png(after, mask, union_width, union_height)
+    if include_diff and outcome.changed_pixels:
+        if union_width * union_height > max_diff_pixels:
+            outcome.warnings.append(
+                "diff image omitted because its bounding canvas exceeds the configured pixel limit"
+            )
+        else:
+            mask = _union_mask(before, after, overlap_mask, union_width, union_height)
+            outcome.diff_png = _diff_png(after, mask, union_width, union_height)
     return outcome
+
+
+def _outside_regions(
+    before: LoadedImage,
+    after: LoadedImage,
+    overlap_width: int,
+    overlap_height: int,
+) -> list[_RegionComponent]:
+    regions: list[_RegionComponent] = []
+    for image in (before, after):
+        touches_right_edge = image.width > overlap_width
+        touches_bottom_edge = image.height > overlap_height
+        changed_pixels = image.width * image.height - overlap_width * overlap_height
+        if changed_pixels == 0:
+            continue
+        if touches_right_edge and touches_bottom_edge:
+            box = BoundingBox(x=0, y=0, width=image.width, height=image.height)
+        elif touches_right_edge:
+            box = BoundingBox(
+                x=overlap_width,
+                y=0,
+                width=image.width - overlap_width,
+                height=image.height,
+            )
+        else:
+            box = BoundingBox(
+                x=0,
+                y=overlap_height,
+                width=image.width,
+                height=image.height - overlap_height,
+            )
+        regions.append(
+            _RegionComponent(
+                region=ChangedRegion(box=box, changed_pixels=changed_pixels),
+                touches_right_edge=touches_right_edge,
+                touches_bottom_edge=touches_bottom_edge,
+                outside=True,
+            )
+        )
+    return regions
+
+
+def _merge_regions(
+    overlap_regions: list[ChangedRegion],
+    outside_regions: list[_RegionComponent],
+    overlap_width: int,
+    overlap_height: int,
+) -> list[ChangedRegion]:
+    components = [
+        *[
+            _RegionComponent(
+                region=region,
+                touches_right_edge=region.box.x + region.box.width == overlap_width,
+                touches_bottom_edge=region.box.y + region.box.height == overlap_height,
+            )
+            for region in overlap_regions
+        ],
+        *outside_regions,
+    ]
+    parents = list(range(len(components)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for outside_index, outside in enumerate(components):
+        if not outside.outside:
+            continue
+        for overlap_index, overlap in enumerate(components[: len(overlap_regions)]):
+            if (
+                outside.touches_right_edge
+                and overlap.touches_right_edge
+                or outside.touches_bottom_edge
+                and overlap.touches_bottom_edge
+            ):
+                union(outside_index, overlap_index)
+
+    groups: dict[int, list[ChangedRegion]] = {}
+    for index, component in enumerate(components):
+        groups.setdefault(find(index), []).append(component.region)
+
+    merged: list[ChangedRegion] = []
+    for regions in groups.values():
+        left = min(region.box.x for region in regions)
+        top = min(region.box.y for region in regions)
+        right = max(region.box.x + region.box.width for region in regions)
+        bottom = max(region.box.y + region.box.height for region in regions)
+        merged.append(
+            ChangedRegion(
+                box=BoundingBox(x=left, y=top, width=right - left, height=bottom - top),
+                changed_pixels=sum(region.changed_pixels for region in regions),
+            )
+        )
+    return merged
+
+
+def _union_mask(
+    before: LoadedImage,
+    after: LoadedImage,
+    overlap_mask: BoolArray,
+    union_width: int,
+    union_height: int,
+) -> BoolArray:
+    mask: BoolArray = np.zeros((union_height, union_width), dtype=bool)
+    before_presence = np.zeros_like(mask)
+    after_presence = np.zeros_like(mask)
+    before_presence[: before.height, : before.width] = True
+    after_presence[: after.height, : after.width] = True
+    mask[before_presence ^ after_presence] = True
+    mask[: overlap_mask.shape[0], : overlap_mask.shape[1]] = overlap_mask
+    return mask
 
 
 def _regions(mask: BoolArray, max_regions: int) -> tuple[list[ChangedRegion], bool]:
@@ -153,6 +298,7 @@ def _regions(mask: BoolArray, max_regions: int) -> tuple[list[ChangedRegion], bo
 
     visited = np.zeros_like(tiles, dtype=bool)
     components: list[list[tuple[int, int]]] = []
+    component_limit_truncated = False
     for ty, tx in zip(*np.nonzero(tiles), strict=True):
         if visited[ty, tx]:
             continue
@@ -169,6 +315,7 @@ def _regions(mask: BoolArray, max_regions: int) -> tuple[list[ChangedRegion], bo
                         queue.append((ny, nx))
         components.append(component)
         if len(components) >= MAX_COMPONENTS:
+            component_limit_truncated = bool(np.any(tiles & ~visited))
             break
 
     regions: list[tuple[int, BoundingBox]] = []
@@ -196,7 +343,7 @@ def _regions(mask: BoolArray, max_regions: int) -> tuple[list[ChangedRegion], bo
         regions.append((int(ys.size), box))
 
     regions.sort(key=lambda item: (-item[0], item[1].y, item[1].x))
-    truncated = len(regions) > max_regions
+    truncated = component_limit_truncated or len(regions) > max_regions
     selected = regions[:max_regions]
     return [ChangedRegion(box=box, changed_pixels=count) for count, box in selected], truncated
 

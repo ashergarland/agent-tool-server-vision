@@ -60,9 +60,9 @@ class OcrRouter:
         return bool(self._settings.azure_content_understanding_endpoint)
 
     def preferred_mode(self) -> ProcessingMode:
-        if self._settings.provider_mode is ProviderMode.LOCAL:
+        if self._settings.provider_mode == ProviderMode.LOCAL:
             return ProcessingMode.LOCAL
-        if self._settings.provider_mode is ProviderMode.AZURE:
+        if self._settings.provider_mode == ProviderMode.AZURE:
             return ProcessingMode.AZURE
         return ProcessingMode.AZURE if self.azure_configured else ProcessingMode.LOCAL
 
@@ -76,15 +76,22 @@ class OcrRouter:
         self, image: LoadedImage, language: str, requested: ProcessingMode
     ) -> RoutedResult:
         if requested is ProcessingMode.LOCAL:
+            if self._settings.provider_mode == ProviderMode.AZURE:
+                raise provider_unavailable("Local OCR is not enabled in Azure provider mode")
             return RoutedResult(await self._run(self._local, image, language), requested, False)
         if requested is ProcessingMode.AZURE:
-            if not self.azure_configured:
+            if self._settings.provider_mode == ProviderMode.LOCAL or not self.azure_configured:
                 raise provider_unavailable("Azure provider is not configured")
             return RoutedResult(await self._run(self._azure, image, language), requested, False)
 
         primary_mode = self.preferred_mode()
         primary = self._azure if primary_mode is ProcessingMode.AZURE else self._local
-        secondary = self._local if primary_mode is ProcessingMode.AZURE else None
+        secondary = (
+            self._local
+            if self._settings.provider_mode == ProviderMode.AUTO
+            and primary_mode is ProcessingMode.AZURE
+            else None
+        )
         try:
             return RoutedResult(await self._run(primary, image, language), primary_mode, False)
         except ProviderError as error:
@@ -109,7 +116,7 @@ class OcrRouter:
         statuses: list[tuple[str, str, str | None]] = []
         local_status, local_detail = await self._local.health()
         statuses.append(("provider:local_paddleocr", local_status, local_detail))
-        if self._settings.provider_mode is not ProviderMode.LOCAL:
+        if self._settings.provider_mode != ProviderMode.LOCAL:
             azure_status, azure_detail = await self._azure.health()
             statuses.append(("provider:azure_content_understanding", azure_status, azure_detail))
         return statuses

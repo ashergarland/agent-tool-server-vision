@@ -90,8 +90,12 @@ def test_server_instructions_state_the_four_routing_rules() -> None:
 
 def test_annotations_describe_side_effects() -> None:
     for definition in TOOLS:
-        assert definition.annotations.destructive_hint is False
         assert definition.annotations.open_world_hint is (
-            definition.name == "extract_text_and_layout"
+            definition.name in {"analyze_image", "extract_text_and_layout"}
         )
-    assert TOOLS_BY_NAME["compare_images"].annotations.read_only_hint is True
+    assert TOOLS_BY_NAME["analyze_image"].annotations.destructive_hint is False
+    assert TOOLS_BY_NAME["extract_text_and_layout"].annotations.destructive_hint is False
+    assert TOOLS_BY_NAME["compare_images"].annotations.read_only_hint is False
+    assert TOOLS_BY_NAME["compare_images"].annotations.destructive_hint is True
+    assert TOOLS_BY_NAME["compare_images"].annotations.idempotent_hint is False
+    assert TOOLS_BY_NAME["optimize_image_region"].annotations.destructive_hint is True

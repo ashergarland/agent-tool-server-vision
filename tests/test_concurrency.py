@@ -53,6 +53,23 @@ async def test_queue_depth_rejects_with_a_retryable_busy_error() -> None:
     await asyncio.gather(first, waiting)
 
 
+async def test_zero_queue_depth_allows_active_work_but_rejects_waiters() -> None:
+    queue = WorkQueue(1, 0, 5)
+    release = asyncio.Event()
+
+    async def operation() -> None:
+        await release.wait()
+
+    active = asyncio.create_task(queue.run(operation))
+    await asyncio.sleep(0)
+    with pytest.raises(VisionError) as error:
+        await queue.run(operation)
+    assert error.value.code is ErrorCode.BUSY
+
+    release.set()
+    await active
+
+
 async def test_operations_are_bounded_by_a_timeout() -> None:
     queue = WorkQueue(1, 1, 0.01)
 

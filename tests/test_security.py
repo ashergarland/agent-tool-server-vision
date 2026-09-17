@@ -1,39 +1,18 @@
-"""Authentication digest and opaque identifier behavior."""
+"""Opaque worker artifact identifier behavior."""
 
 from __future__ import annotations
 
-from vision_server.config import Settings
 from vision_server.security import (
-    digest_secret,
-    match_secret,
+    ANONYMOUS_PRINCIPAL,
+    new_token,
     principal_bucket,
-    principal_from_digest,
 )
 
 
-def test_secret_digests_are_deterministic_and_match_in_constant_time() -> None:
-    first = digest_secret("first-secret")
-    second = digest_secret("second-secret")
-
-    assert first == digest_secret("first-secret")
+def test_tokens_are_unguessable_and_principal_buckets_are_path_safe() -> None:
+    first = new_token()
+    second = new_token()
     assert first != second
-    assert len(first) == 64
-    credentials = (("second-secret", second), ("first-secret", first))
-    assert match_secret("first-secret", credentials) == first
-    assert match_secret("unknown-secret", credentials) is None
-
-
-def test_configured_digests_are_cached() -> None:
-    settings = Settings(api_keys="first-secret,second-secret", _env_file=None)
-
-    assert settings.api_key_credentials is settings.api_key_credentials
-    assert len(settings.api_key_digests) == 2
-
-
-def test_opaque_identifiers_reuse_the_hardened_digest_prefix() -> None:
-    digest = digest_secret("first-secret")
-    principal = principal_from_digest(digest)
-
-    assert principal == f"p_{digest[:32]}"
-    assert principal_bucket(principal) == digest[:32]
+    assert len(first) >= 32
+    assert principal_bucket(ANONYMOUS_PRINCIPAL) == "local-development"
     assert principal_bucket("local-development") == "local-development"

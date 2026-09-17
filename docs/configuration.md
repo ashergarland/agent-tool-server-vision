@@ -1,83 +1,63 @@
 # Configuration and limits
 
-Every setting is environment driven with the `VISION_` prefix. No account, tenant, region, or
-owner-specific default is committed to this repository. Required production settings are validated
-at startup and the process fails fast when they are invalid.
+Agent Tool Platform owns service identity, HTTP/MCP transport, authentication, request body limits,
+rate limits, request cancellation, shutdown, logging, and mutation gates. Vision contributes only
+the capability and worker variables below. Blank variables are treated as unset and invalid values
+fail application assembly.
 
-## Service and authentication
+## Files and image bounds
 
-| Variable                  | Default                    | Notes                                              |
-| ------------------------- | -------------------------- | -------------------------------------------------- |
-| `VISION_SERVICE_NAME`     | `agent-tool-server-vision` | Reported by `/health` and MCP `initialize`.        |
-| `VISION_SERVICE_VERSION`  | package version            |                                                    |
-| `VISION_ENVIRONMENT`      | `development`              | `production` requires auth and at least one key.   |
-| `VISION_AUTH_ENABLED`     | `true`                     | May only be disabled outside production.           |
-| `VISION_API_KEYS`         | empty                      | Comma separated. Compared by constant-time digest. |
-| `VISION_LOG_LEVEL`        | `INFO`                     |                                                    |
-| `VISION_LOG_PAYLOAD_METADATA` | `false`                | Never logs image bytes or OCR text.                |
+| Variable                   | Default                | Bound and behavior                                                                                         |
+| -------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `VISION_ALLOWED_ROOTS`     | required               | Absolute roots separated by the host path separator or commas. Empty or invalid roots make readiness fail. |
+| `VISION_PYTHON_PATH`       | PATH resolution        | Optional absolute executable path; relative overrides are rejected.                                        |
+| `VISION_MAX_IMAGE_BYTES`   | `10485760`             | `1024` to `67108864`; enforced on the opened file before decode/parse.                                     |
+| `VISION_MAX_IMAGE_PIXELS`  | `40000000`             | `1024` to `200000000`; enforced before raster decode and against SVG dimensions.                           |
+| `VISION_ASSET_ROOT`        | private worker scratch | Optional absolute persistent filesystem artifact root.                                                     |
+| `VISION_ASSET_TTL_SECONDS` | `3600`                 | `60` to seven days.                                                                                        |
+| `VISION_ASSET_MAX_BYTES`   | `10485760`             | `1024` to `67108864`.                                                                                      |
+| `VISION_ASSET_QUOTA_BYTES` | `268435456`            | Per-principal byte ceiling.                                                                                |
+| `VISION_ASSET_QUOTA_COUNT` | `200`                  | `1` to `10000` objects per principal.                                                                      |
 
-HTTP transports accept `Authorization: Bearer <key>` or `X-API-Key: <key>`. Each key maps to a
-stable, opaque principal that scopes asset access.
+The D4 package profiles use filesystem assets. Legacy `azure_blob` storage remains a Python domain
+adapter for embedding compatibility but is not part of either declared package profile.
 
-## Input limits
+## OCR policy
 
-| Variable                  | Default      | Notes                                                        |
-| ------------------------- | ------------ | ------------------------------------------------------------ |
-| `VISION_ALLOWED_ROOTS`    | empty        | Comma or colon separated roots. Empty rejects all local paths.|
-| `VISION_MAX_IMAGE_BYTES`  | `10485760`   | Enforced before decoding.                                     |
-| `VISION_MAX_IMAGE_PIXELS` | `40000000`   | Decoded pixel budget, checked before full decode.             |
-| `VISION_MAX_JSON_BYTES`   | `1000000`    | Request bodies above this are rejected with `payload_too_large`. |
+| Variable                                         | Default                     | Bound and behavior                                                 |
+| ------------------------------------------------ | --------------------------- | ------------------------------------------------------------------ |
+| `VISION_PROVIDER_MODE`                           | `local`                     | `local`, `azure`, or `auto`; Azure/auto require an HTTPS endpoint. |
+| `VISION_DEFAULT_LANGUAGE`                        | `en`                        | One of `en`, `ch`, `fr`, `german`, `japan`, `korean`.              |
+| `VISION_PADDLE_LANGUAGES`                        | `en`                        | Comma-separated non-empty subset of the same allow-list.           |
+| `VISION_PADDLE_CACHE_SIZE`                       | `2`                         | `1` to `8` lazy local engines within one worker process.           |
+| `VISION_AZURE_CONTENT_UNDERSTANDING_ENDPOINT`    | unset                       | HTTPS only; required by Azure/auto mode.                           |
+| `VISION_AZURE_CONTENT_UNDERSTANDING_API_VERSION` | `2025-11-01`                | At most 40 characters.                                             |
+| `VISION_AZURE_CONTENT_UNDERSTANDING_ANALYZER`    | `prebuilt-documentAnalyzer` | At most 120 characters.                                            |
 
-## Providers
+## Work, time, and output bounds
 
-| Variable                                        | Default                      | Notes                                |
-| ----------------------------------------------- | ---------------------------- | ------------------------------------ |
-| `VISION_PROVIDER_MODE`                          | `local`                      | `local`, `azure`, or `auto`.         |
-| `VISION_DEFAULT_LANGUAGE`                       | `en`                         | Must be in the allow list.           |
-| `VISION_PADDLE_LANGUAGES`                       | `en`                         | Allow list for the local provider.   |
-| `VISION_PADDLE_CACHE_SIZE`                      | `2`                          | Bounded LRU of loaded engines.       |
-| `VISION_AZURE_CONTENT_UNDERSTANDING_ENDPOINT`   | empty                        | HTTPS only; required for azure/auto. |
-| `VISION_AZURE_CONTENT_UNDERSTANDING_API_VERSION`| `2025-11-01`                 | Current GA API version.              |
-| `VISION_AZURE_CONTENT_UNDERSTANDING_ANALYZER`   | `prebuilt-documentAnalyzer`  | Read/layout analyzer.                |
+| Variable                           | Default   | Bound and behavior                                                                        |
+| ---------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| `VISION_MAX_CONCURRENCY`           | `2`       | `1` to `16` worker processes.                                                             |
+| `VISION_MAX_QUEUE_DEPTH`           | `8`       | `0` to `128`; overflow is a retryable Platform `busy` error.                              |
+| `VISION_OPERATION_TIMEOUT_SECONDS` | `60`      | `0.1` to `600`; Python domain operation ceiling.                                          |
+| `VISION_PROVIDER_TIMEOUT_SECONDS`  | `30`      | `0.1` to `600` and no greater than operation timeout.                                     |
+| `VISION_WORKER_TIMEOUT_MS`         | `65000`   | `1000` to `610000`, at least 1000 ms longer than the Python operation timeout.            |
+| `VISION_WORKER_MAX_OUTPUT_BYTES`   | `2097152` | `65536` to `8388608`; Python truncates bulk result fields before Platform's hard ceiling. |
+| `VISION_SHUTDOWN_GRACE_SECONDS`    | `10`      | `0` to `120`; Python queue defense in depth.                                              |
 
-## Assets
+Worker protocol input is independently limited to 65536 bytes and stderr to 8192 bytes. MCP tool
+schemas also bound every path, list, string, region, text block, and fact.
 
-| Variable                        | Default        | Notes                                             |
-| ------------------------------- | -------------- | ------------------------------------------------- |
-| `VISION_STORAGE_BACKEND`        | `filesystem`   | `filesystem` or `azure_blob`.                     |
-| `VISION_ASSET_ROOT`             | `./.vision-assets` | Filesystem backend root, created with mode 0700. |
-| `VISION_STORAGE_ACCOUNT_URL`    | empty          | HTTPS blob endpoint; required for `azure_blob`.   |
-| `VISION_ASSET_CONTAINER`        | empty          | Private container for uploaded inputs.            |
-| `VISION_ARTIFACT_CONTAINER`     | empty          | Private container for generated artifacts.        |
-| `VISION_ASSET_TTL_SECONDS`      | `3600`         | Must match the blob lifecycle deletion rule.      |
-| `VISION_ASSET_MAX_BYTES`        | `10485760`     | Per asset.                                        |
-| `VISION_ASSET_QUOTA_BYTES`      | `268435456`    | Per principal.                                    |
-| `VISION_ASSET_QUOTA_COUNT`      | `200`          | Per principal.                                    |
+For an embedded HTTP application, keep Platform `BODY_LIMIT_BYTES`, `RATE_LIMIT_MAX`,
+`PRE_AUTH_RATE_LIMIT_MAX`, and `REQUEST_TIMEOUT_MS` bounded. A hosted operator must additionally
+authorize workload roots/uploads and provider spend; no hosted profile is declared here.
 
-## Concurrency, timeouts, and shutdown
+## Hybrid identity variables
 
-| Variable                            | Default | Notes                                                  |
-| ----------------------------------- | ------- | ------------------------------------------------------ |
-| `VISION_MAX_CONCURRENCY`            | `4`     | Concurrent tool executions per replica.                |
-| `VISION_MAX_QUEUE_DEPTH`            | `32`    | Excess work is rejected with retryable `busy`.         |
-| `VISION_OPERATION_TIMEOUT_SECONDS`  | `60`    | Per tool call.                                         |
-| `VISION_PROVIDER_TIMEOUT_SECONDS`   | `30`    | Per OCR provider attempt.                              |
-| `VISION_SHUTDOWN_GRACE_SECONDS`     | `15`    | In-flight work drains on SIGTERM before exit.          |
-
-## Health and readiness
-
-`/health` is liveness only. `/ready` reports the registry, storage, configuration summary, and
-per-provider capability status. Optional providers that are unavailable are reported but do not fail
-readiness, and no model weights are loaded to answer a readiness probe.
-
-## Error model
-
-Every failure returns one shape:
-
-```json
-{ "error": { "code": "invalid_input", "message": "...", "retryable": false,
-             "details": {}, "requestId": "..." } }
-```
-
-Only `busy`, `timeout`, and `provider_unavailable` are retryable. Stacks, filesystem paths, blob
-names, secrets, signed URLs, and raw SDK errors are never exposed.
+The declared hybrid profile fixes `VISION_PROVIDER_MODE=azure` and uses `AZURE_TENANT_ID`,
+`AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`. All three are required in `azure` and `auto` modes,
+and the last value must come from an operator secret manager. They are forwarded only for those
+modes. `auto` is an embedding-only mode that also requires the `ml` extra for local fallback.
+Unrelated environment variables and Azure credentials present during local-mode startup are never
+inherited by the worker.

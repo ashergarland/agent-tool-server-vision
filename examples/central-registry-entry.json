@@ -1,0 +1,6 @@
+{
+  "id": "agent-tool-server-vision",
+  "repository": "https://github.com/ashergarland/agent-tool-server-vision",
+  "serverMetadata": "server.json",
+  "categories": ["vision", "ocr", "developer-tools"]
+}

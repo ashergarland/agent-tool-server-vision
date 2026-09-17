@@ -1,12 +1,33 @@
 # Contributing
 
-Use Python 3.11 or newer and install development dependencies with `pip install -e '.[dev]'`.
+Keep the TypeScript layer thin and Platform-facing. Tool schemas, routing, configuration, readiness,
+and worker result translation belong there. Image decoding, OCR, provider normalization, comparison,
+optimization, and visual evidence interpretation remain in Python.
 
-Declare tools only in `src/vision_server/registry.py`; transports must derive names, descriptions,
-schemas, and routes from it. Keep provider-specific logic behind the `OcrProvider` protocol, image
-and path security in `imaging.py`, and storage behind `AssetStore`. Tests must not require Azure,
-network access, or model weights; inject the deterministic fakes in `tests/conftest.py` instead.
+Do not add a second MCP/HTTP server, generic process supervisor, agent host, registry, or deployment
+framework. Reuse Agent Tool Platform mechanics. Do not expose arbitrary commands or forward the
+parent environment to the worker.
 
-Before opening a pull request, run the complete validation list in `README.md`. Never commit `.env`
-files, model outputs containing user data, credentials, tenant/subscription identifiers, or generated
-secrets.
+Before submitting a change, run the smallest affected tests and then the consolidated gates:
+
+```bash
+npm ci
+npm run format:check
+npm run lint
+npm run typecheck
+npm run test:coverage
+npm run build
+npm run metadata:validate
+npm run package:smoke
+
+python -m pip install -e '.[dev]'
+ruff check .
+ruff format --check .
+mypy
+pytest
+```
+
+Provider tests must use fakes; CI must not need provider credentials, network inference, model
+weights, or a live Azure resource. New image formats require explicit magic/structure, byte, and
+decoded-work bounds. New interpretation rules must be generic and tested against more than one
+value; never encode benchmark fixture answers in production code.

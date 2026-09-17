@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:io.github.ashergarland:agent-tool-server-vision:local-configuration:v1",
+  "title": "Vision local package configuration",
+  "description": "Bounded local filesystem and Python worker settings. Platform transport and authentication settings remain Platform-owned.",
+  "type": "object",
+  "properties": {
+    "VISION_ALLOWED_ROOTS": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "description": "Absolute roots separated by the host path separator or commas."
+    },
+    "VISION_PYTHON_PATH": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "Optional absolute path to the Python 3 executable."
+    },
+    "VISION_PROVIDER_MODE": {
+      "const": "local",
+      "default": "local"
+    },
+    "VISION_DEFAULT_LANGUAGE": {
+      "enum": ["en", "ch", "fr", "german", "japan", "korean"],
+      "default": "en"
+    },
+    "VISION_PADDLE_LANGUAGES": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "default": "en"
+    },
+    "VISION_PADDLE_CACHE_SIZE": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "default": 2
+    },
+    "VISION_MAX_IMAGE_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 67108864,
+      "default": 10485760
+    },
+    "VISION_MAX_IMAGE_PIXELS": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 200000000,
+      "default": 40000000
+    },
+    "VISION_STORAGE_BACKEND": {
+      "const": "filesystem",
+      "default": "filesystem"
+    },
+    "VISION_ASSET_ROOT": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "VISION_ASSET_TTL_SECONDS": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 604800,
+      "default": 3600
+    },
+    "VISION_ASSET_MAX_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 67108864,
+      "default": 10485760
+    },
+    "VISION_ASSET_QUOTA_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 2147483647,
+      "default": 268435456
+    },
+    "VISION_ASSET_QUOTA_COUNT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "default": 200
+    },
+    "VISION_MAX_CONCURRENCY": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16,
+      "default": 2
+    },
+    "VISION_MAX_QUEUE_DEPTH": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 128,
+      "default": 8
+    },
+    "VISION_OPERATION_TIMEOUT_SECONDS": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 600,
+      "default": 60
+    },
+    "VISION_PROVIDER_TIMEOUT_SECONDS": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 600,
+      "default": 30
+    },
+    "VISION_SHUTDOWN_GRACE_SECONDS": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 120,
+      "default": 10
+    },
+    "VISION_WORKER_TIMEOUT_MS": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 610000,
+      "default": 65000
+    },
+    "VISION_WORKER_MAX_OUTPUT_BYTES": {
+      "type": "integer",
+      "minimum": 65536,
+      "maximum": 8388608,
+      "default": 2097152
+    }
+  },
+  "required": ["VISION_ALLOWED_ROOTS"],
+  "additionalProperties": false
+}

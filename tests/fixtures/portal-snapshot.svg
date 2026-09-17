@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <rect width="1200" height="720" fill="#f4f7fb" />
+  <rect x="0" y="0" width="1200" height="78" fill="#172554" />
+  <text x="42" y="49" fill="#ffffff" font-family="Arial, sans-serif" font-size="28">
+    Synthetic deployment overview
+  </text>
+  <text x="42" y="112" fill="#172554" font-family="Arial, sans-serif" font-size="22">
+    checkout-api / checkout-api--pr-1842
+  </text>
+
+  <rect x="42" y="142" width="250" height="124" rx="12" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="62" y="176" fill="#475569" font-family="Arial, sans-serif" font-size="17">
+    Revision state
+  </text>
+  <text x="62" y="220" fill="#b91c1c" font-family="Arial, sans-serif" font-size="30">
+    Degraded
+  </text>
+  <text x="62" y="248" fill="#475569" font-family="Arial, sans-serif" font-size="15">
+    Ready replicas: 0 / 1
+  </text>
+
+  <rect x="316" y="142" width="250" height="124" rx="12" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="336" y="176" fill="#475569" font-family="Arial, sans-serif" font-size="17">
+    Ingress
+  </text>
+  <text x="336" y="216" fill="#172554" font-family="Arial, sans-serif" font-size="26">
+    Target port 8080
+  </text>
+  <text x="336" y="248" fill="#475569" font-family="Arial, sans-serif" font-size="15">
+    External / auto transport
+  </text>
+
+  <rect x="590" y="142" width="250" height="124" rx="12" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="610" y="176" fill="#475569" font-family="Arial, sans-serif" font-size="17">
+    Readiness
+  </text>
+  <text x="610" y="216" fill="#172554" font-family="Arial, sans-serif" font-size="26">
+    TCP port 8080
+  </text>
+  <text x="610" y="248" fill="#b91c1c" font-family="Arial, sans-serif" font-size="15">
+    Connection refused (3)
+  </text>
+
+  <rect x="864" y="142" width="294" height="124" rx="12" fill="#ffffff" stroke="#cbd5e1" />
+  <text x="884" y="176" fill="#475569" font-family="Arial, sans-serif" font-size="17">
+    Environment
+  </text>
+  <text x="884" y="216" fill="#172554" font-family="Arial, sans-serif" font-size="24">
+    APP_PORT = 8080
+  </text>
+  <text x="884" y="248" fill="#475569" font-family="Arial, sans-serif" font-size="15">
+    NODE_ENV = production
+  </text>
+
+  <rect x="42" y="302" width="1116" height="340" rx="12" fill="#0f172a" />
+  <text x="68" y="342" fill="#94a3b8" font-family="Consolas, monospace" font-size="17">
+    Latest console and platform events
+  </text>
+  <text x="68" y="390" fill="#e2e8f0" font-family="Consolas, monospace" font-size="18">
+    18:02:03 revision_create status=success
+  </text>
+  <text x="68" y="430" fill="#86efac" font-family="Consolas, monospace" font-size="18">
+    18:02:06 server_started address=0.0.0.0 port=3000 healthPath=/healthz
+  </text>
+  <text x="68" y="470" fill="#fca5a5" font-family="Consolas, monospace" font-size="18">
+    18:02:09 readiness tcp:8080 connection_refused
+  </text>
+  <text x="68" y="510" fill="#fca5a5" font-family="Consolas, monospace" font-size="18">
+    18:02:14 readiness tcp:8080 connection_refused
+  </text>
+  <text x="68" y="550" fill="#fca5a5" font-family="Consolas, monospace" font-size="18">
+    18:02:19 readiness tcp:8080 connection_refused
+  </text>
+  <text x="68" y="600" fill="#fcd34d" font-family="Consolas, monospace" font-size="17">
+    Optional source-map upload warning is non-blocking
+  </text>
+  <text x="42" y="687" fill="#64748b" font-family="Arial, sans-serif" font-size="14">
+    Fixture image - no live provider data
+  </text>
+</svg>

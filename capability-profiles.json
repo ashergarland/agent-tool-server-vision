@@ -1,0 +1,176 @@
+{
+  "contractVersion": 1,
+  "kind": "capability-profile-declaration",
+  "capability": {
+    "id": "io.github.ashergarland/agent-tool-server-vision",
+    "displayName": "Vision",
+    "repository": "https://github.com/ashergarland/agent-tool-server-vision"
+  },
+  "profiles": [
+    {
+      "id": "local-package",
+      "description": "Local stdio execution over explicitly allowed image roots with deterministic image operations and local OCR.",
+      "dimensions": {
+        "execution": "local",
+        "delivery": "package",
+        "access": "local-process",
+        "workload": "filesystem",
+        "provider": "none",
+        "mutation": "mutating"
+      },
+      "delivery": {
+        "supportedForms": ["package"],
+        "publication": {
+          "kind": "package",
+          "identifier": "agent-tool-server-vision"
+        },
+        "entrypoint": {
+          "reference": "dist/stdio.js",
+          "interface": "stdio"
+        },
+        "mechanics": [
+          {
+            "id": "local-stdio",
+            "reference": "README.md#run-the-capability"
+          },
+          {
+            "id": "python-worker",
+            "reference": "README.md#python-worker-prerequisites"
+          }
+        ],
+        "provenance": {
+          "method": "package-metadata",
+          "reference": "package.json#repository"
+        }
+      },
+      "configuration": {
+        "schema": {
+          "id": "urn:io.github.ashergarland:agent-tool-server-vision:local-configuration:v1",
+          "capabilityId": "io.github.ashergarland/agent-tool-server-vision",
+          "path": "schemas/local-configuration.schema.json"
+        },
+        "bounded": true
+      },
+      "requiredSecrets": [],
+      "providerPrerequisites": [],
+      "identity": {
+        "trustBoundary": "The invoking local user, the configured image roots, and that user's operating-system permissions.",
+        "rbac": []
+      },
+      "workload": {
+        "interface": {
+          "kind": "filesystem",
+          "reference": "README.md#image-input-boundary"
+        },
+        "authorization": {
+          "scope": "Read access is limited to absolute roots explicitly listed in VISION_ALLOWED_ROOTS."
+        },
+        "lifecycle": {
+          "mode": "request",
+          "freshness": "Each invocation opens and validates the selected image from its allowed root.",
+          "cleanup": "Source images are unchanged; ephemeral worker scratch and default artifacts are removed at application shutdown."
+        },
+        "notReady": {
+          "whenAbsent": "not-ready",
+          "reason": "No valid allowed image root or required Python image dependency is available."
+        }
+      },
+      "mutation": {
+        "enablement": "separate",
+        "authorization": "Platform mutation policy must explicitly enable principal-scoped diff and optimized-image artifact creation.",
+        "confirmation": "Platform confirmation policy applies before compare_images or optimize_image_region can create an artifact.",
+        "durableRecord": "not-required",
+        "authoritativeVerification": "A successful result returns an opaque artifact identifier that the same principal can read until application cleanup."
+      },
+      "extensionSchemas": [],
+      "verification": {
+        "surfaces": ["identity", "readiness", "version", "behavior", "provenance"]
+      }
+    },
+    {
+      "id": "hybrid-azure-package",
+      "description": "Local stdio execution with bounded filesystem images and explicitly configured Azure Content Understanding OCR.",
+      "dimensions": {
+        "execution": "local",
+        "delivery": "package",
+        "access": "local-process",
+        "workload": "filesystem",
+        "provider": "external",
+        "mutation": "mutating"
+      },
+      "delivery": {
+        "supportedForms": ["package"],
+        "publication": {
+          "kind": "package",
+          "identifier": "agent-tool-server-vision"
+        },
+        "entrypoint": {
+          "reference": "dist/stdio.js",
+          "interface": "stdio"
+        },
+        "mechanics": [
+          {
+            "id": "hybrid-stdio",
+            "reference": "docs/deployment.md#hybrid-azure-package"
+          },
+          {
+            "id": "credential-isolation",
+            "reference": "docs/providers.md#worker-credential-boundary"
+          }
+        ],
+        "provenance": {
+          "method": "package-metadata",
+          "reference": "package.json#repository"
+        }
+      },
+      "configuration": {
+        "schema": {
+          "id": "urn:io.github.ashergarland:agent-tool-server-vision:hybrid-azure-configuration:v1",
+          "capabilityId": "io.github.ashergarland/agent-tool-server-vision",
+          "path": "schemas/hybrid-azure-configuration.schema.json"
+        },
+        "bounded": true
+      },
+      "requiredSecrets": ["AZURE_CLIENT_SECRET"],
+      "providerPrerequisites": [
+        {
+          "id": "azure-content-understanding",
+          "description": "An HTTPS Azure AI Content Understanding endpoint and an Entra application authorized only for analysis."
+        }
+      ],
+      "identity": {
+        "trustBoundary": "The invoking local user, configured image roots, and the explicitly forwarded Azure service-principal credential.",
+        "rbac": ["Cognitive Services User on the selected Azure AI resource"]
+      },
+      "workload": {
+        "interface": {
+          "kind": "filesystem",
+          "reference": "README.md#image-input-boundary"
+        },
+        "authorization": {
+          "scope": "Read access is limited to absolute roots explicitly listed in VISION_ALLOWED_ROOTS."
+        },
+        "lifecycle": {
+          "mode": "request",
+          "freshness": "Each invocation validates the local image before a selected OCR request is sent.",
+          "cleanup": "Source images are unchanged; worker scratch is removed at shutdown and provider retention follows the operator's Azure policy."
+        },
+        "notReady": {
+          "whenAbsent": "not-ready",
+          "reason": "Allowed roots, Python dependencies, provider endpoint, or explicit provider identity configuration are absent."
+        }
+      },
+      "mutation": {
+        "enablement": "separate",
+        "authorization": "Platform mutation policy must explicitly enable principal-scoped diff and optimized-image artifact creation.",
+        "confirmation": "Platform confirmation policy applies before compare_images or optimize_image_region can create an artifact.",
+        "durableRecord": "not-required",
+        "authoritativeVerification": "A successful result returns an opaque artifact identifier that the same principal can read until application cleanup."
+      },
+      "extensionSchemas": [],
+      "verification": {
+        "surfaces": ["identity", "readiness", "version", "behavior", "provider", "provenance"]
+      }
+    }
+  ]
+}

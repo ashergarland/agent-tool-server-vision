@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import io
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 from PIL import Image
 
 from vision_server.assets import FilesystemAssetStore
@@ -19,9 +18,6 @@ from vision_server.providers.base import OcrBlock, OcrResult
 from vision_server.providers.router import OcrRouter
 from vision_server.runtime import Runtime, ToolContext
 from vision_server.security import ANONYMOUS_PRINCIPAL
-from vision_server.transports.http import create_app
-
-API_KEY = "test-key-abcdef"
 
 
 class FakeOcrProvider:
@@ -107,7 +103,6 @@ def settings(tmp_path: Path, allowed_root: Path) -> Settings:
     return Settings(
         allowed_roots=str(allowed_root),
         asset_root=str(tmp_path / "assets"),
-        api_keys=API_KEY,
         _env_file=None,  # type: ignore[call-arg]
     )
 
@@ -156,14 +151,6 @@ def runtime(
 @pytest.fixture
 def context(runtime: Runtime) -> ToolContext:
     return ToolContext(runtime=runtime, principal=ANONYMOUS_PRINCIPAL, request_id="test-request")
-
-
-@pytest.fixture
-def client(runtime: Runtime) -> Iterator[TestClient]:
-    app = create_app(runtime=runtime)
-    with TestClient(app) as test_client:
-        test_client.headers.update({"authorization": "Bearer " + API_KEY})
-        yield test_client
 
 
 def local_reference(path: Path) -> dict[str, Any]:

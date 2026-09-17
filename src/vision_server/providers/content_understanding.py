@@ -9,6 +9,7 @@ service payloads are normalized and never returned to callers.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 from typing import Any
 
 from ..config import Settings
@@ -26,6 +27,13 @@ from .base import (
 
 CREDENTIAL_SCOPE = "https://cognitiveservices.azure.com/.default"
 _POLL_INTERVAL_SECONDS = 1.0
+
+
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
 
 
 class ContentUnderstandingProvider:
@@ -71,7 +79,21 @@ class ContentUnderstandingProvider:
     async def health(self) -> tuple[str, str | None]:
         if not self.configured:
             return "unavailable", "endpoint is not configured"
-        return "ok", "configuration present; not called during readiness"
+        missing: list[str] = []
+        if self._transport is None and not _module_available("httpx"):
+            missing.append("httpx")
+        if (
+            self._token_provider is None
+            and self._credential is None
+            and not _module_available("azure.identity")
+        ):
+            missing.append("azure-identity")
+        if missing:
+            return (
+                "unavailable",
+                f"required provider dependencies are not installed: {', '.join(missing)}",
+            )
+        return "degraded", "configuration present; credentials and provider are not called"
 
     async def close(self) -> None:
         credential = self._credential
@@ -130,7 +152,7 @@ class ContentUnderstandingProvider:
     async def _client(self) -> Any:
         try:
             import httpx
-        except ImportError as exc:  # pragma: no cover - httpx ships with FastAPI stack
+        except ImportError as exc:  # pragma: no cover - covered by the optional Azure dependency
             raise provider_unavailable("httpx is not installed") from exc
         timeout = self._settings.provider_timeout_seconds
         if self._transport is not None:

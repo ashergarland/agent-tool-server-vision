@@ -1,106 +1,188 @@
-# agent-tool-server-vision
+# Agent Tool Server Vision
 
-A hybrid vision tool server for AI agents. It exposes exactly three token-saving image tools over
-three transports, all generated from a single tool registry:
+Vision is a thin Agent Tool Platform capability backed by a capability-owned Python image and OCR
+worker:
 
-| Tool                       | Purpose                                                                    |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `extract_text_and_layout`  | OCR and reading order as markdown, text, or CSV plus normalized text blocks |
-| `compare_images`           | Deterministic before/after similarity, changed pixels, and changed regions  |
-| `optimize_image_region`    | Crop, downscale, and compress a known region into an opaque artifact        |
+```text
+agent host
+   |
+   | MCP stdio (or a Platform-assembled authenticated HTTP application)
+   v
+TypeScript capability
+   - Platform runtime, lifecycle, auth, rate limits, cancellation, MCP, HTTP, OpenAPI
+   - bounded tool schemas and routing
+   - bounded queue and safe process invocation
+   |
+   | one bounded JSON request / one bounded JSON response
+   v
+Python worker
+   - image validation and normalization
+   - OCR provider routing and fallback
+   - deterministic comparison and optimization
+   - structured visual evidence extraction
+```
 
-Transports:
+The migration follows the non-TypeScript worker seam documented by the D4 template at
+`db42b31a16ba0fa41066edac331b71497b3a9c8c`. It uses Agent Tool Platform runtime/application and
+process mechanics from the Platform line represented by
+`98ec8162fb11d5c04aee9e6f7b3625a472a0180d`. Python remains the domain implementation; image and OCR
+behavior was not rewritten in TypeScript.
 
-| Transport                      | Entry point                                            |
-| ------------------------------ | ------------------------------------------------------ |
-| stdio MCP                      | `vision-server-stdio` or `python -m vision_server`      |
-| Streamable HTTP MCP (stateless)| `POST /mcp/` on the FastAPI app                         |
-| HTTP / OpenAPI 3.1             | `POST /tools/{tool}` plus `/health`, `/ready`, `/assets`|
+## Tools
 
-`src/vision_server/registry.py` is the only place tool names, routing descriptions, annotations,
-schemas, and handlers are defined; every transport and the OpenAPI document are derived from it, and
-`tests/test_mcp_transport.py` asserts transport parity.
+| Tool                      | Purpose                                                                                                                          |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `analyze_image`           | Extract bounded status, identity, environment, listener, ingress, and readiness facts with evidence, confidence, and provenance. |
+| `extract_text_and_layout` | Return OCR text, reading order, confidence, and normalized coordinates.                                                          |
+| `compare_images`          | Return deterministic similarity, changed pixels, and changed regions.                                                            |
+| `optimize_image_region`   | Crop, downscale, and compress a known region into an ephemeral worker artifact.                                                  |
 
-## Image inputs
+The TypeScript catalogue in `src/tools/definitions.ts` is the MCP-facing contract. Python validates
+the worker request again and normalizes domain failures into a stable worker envelope. Platform
+then projects the result or error consistently over MCP and HTTP.
 
-Tools accept a discriminated image reference only:
+## Python worker prerequisites
+
+Node.js 22 and Python 3.11 through 3.13 are supported. The upper bound reflects the published
+PaddlePaddle wheels used by the optional local OCR extra.
+
+From a source checkout:
+
+```bash
+npm ci
+python -m pip install -e .
+```
+
+The core install supports SVG analysis, raster decoding, deterministic comparison, region
+optimization, fake-provider tests, and managed-provider integration. Local raster OCR additionally
+needs PaddleOCR model dependencies:
+
+```bash
+python -m pip install -e '.[ml]'
+```
+
+Azure Content Understanding needs:
+
+```bash
+python -m pip install -e '.[azure]'
+```
+
+The npm package includes `pyproject.toml` and `src/vision_server`. After installing the npm package,
+the same Python extras can be installed from its package directory. The wrapper sets `PYTHONPATH`
+to the packaged source; it never installs dependencies or downloads model weights at runtime.
+
+## Run the capability
+
+Set at least one absolute allowed image root, build, and launch stdio:
+
+```bash
+export VISION_ALLOWED_ROOTS=/absolute/path/to/images
+npm run build
+npm run mcp:stdio
+```
+
+On Windows, separate multiple roots with semicolons; on POSIX use colons. Commas work on both.
+`VISION_PYTHON_PATH` may name an explicit absolute Python executable. The installed executable is
+`agent-tool-vision`.
+
+The stdio path is host-neutral and binds no network listener. Platform forces local stdio
+authentication semantics independently of inherited hosted environment variables.
+
+## Image input boundary
+
+Inputs are discriminated references:
 
 ```json
-{ "kind": "local_path", "path": "/allowed/root/screenshot.png" }
-{ "kind": "asset", "assetId": "iA1b2C3..." }
+{ "kind": "local_path", "path": "/absolute/allowed/screenshot.png" }
+{ "kind": "asset", "assetId": "aOpaqueWorkerArtifact" }
 ```
 
-Base64 payloads, data URLs, remote URLs, storage URLs, SAS URLs, and bare strings are rejected.
-Local paths are resolved with `realpath`, must be regular files beneath `VISION_ALLOWED_ROOTS`,
-are opened with `O_NOFOLLOW`, are validated by magic bytes (PNG, JPEG, WebP), are EXIF-normalized,
-and are bounded by byte and decoded-pixel limits before any processing. Hosted responses return
-opaque asset and artifact IDs only; internal paths, container names, and storage URLs are never
-returned.
+Remote URLs, storage URLs, SAS URLs, data URLs, base64 payloads, and bare strings are rejected.
+Local paths must be absolute, resolve beneath `VISION_ALLOWED_ROOTS`, and name regular files.
+Raster inputs are bounded by encoded bytes and decoded pixels, checked by magic bytes, and limited
+to PNG, JPEG, or WebP. `analyze_image` also accepts bounded local SVG files; document type/entity
+declarations are rejected, XML structure and extracted text are bounded, and only visible text
+elements are interpreted.
 
-Assets are uploaded and downloaded through `/assets`. They are principal-scoped, unguessable,
-size- and quota-bounded, and expire after `VISION_ASSET_TTL_SECONDS`.
+The wrapper accepts at most two active workers and eight queued calls by default. Platform process
+execution uses an absolute Python executable, fixed argv, no shell, an explicit environment, a
+private working directory, wall-clock and stdout/stderr ceilings, cancellation, and deterministic
+termination. See `docs/configuration.md` for every bound.
 
-## Quick start (local, no Azure)
+## Benchmark visual proof
 
-Python 3.11 or newer.
+`tests/fixtures/portal-snapshot.svg` is the Level 2 `portal-snapshot.svg` fixture. The integration
+test drives the real TypeScript-to-Python round trip and establishes:
 
-```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -e '.[dev]'          # add ,ml for the local PaddleOCR provider
-export VISION_ALLOWED_ROOTS="$PWD/samples"
-export VISION_AUTH_ENABLED=false  # development only; production fails closed
-uvicorn vision_server.main:app --port 8080
-```
+- revision identity `checkout-api--pr-1842`;
+- degraded revision state and zero-ready-replica evidence;
+- ingress and TCP readiness target port `8080`;
+- process listener port `3000`;
+- repeated readiness connection refusal;
+- `APP_PORT=8080` and `NODE_ENV=production`.
 
-stdio MCP for an agent host:
+Facts are derived from generic label, key/value, listener, port, readiness, and status patterns.
+Production code contains no fixture filename or expected fixture value. Embedded SVG text carries
+block provenance and deterministic confidence. Raster results carry OCR block/provider provenance.
 
-```bash
-VISION_ALLOWED_ROOTS=/path/to/images vision-server-stdio
-```
+If no supported fact pattern is recognized, `analyze_image` returns bounded `extractedText`, sets
+`fallbackUsed`, records `fallbackReason`, and warns the caller to use native vision for unsupported
+semantics. Retryable managed-provider fallback is also explicit; authentication, quota, validation,
+and malformed-provider failures never fall back.
 
-Local-only mode needs no Azure account, no network access, and no credentials.
+## Document Optimizer seam
 
-## Agent routing
+`analyze_image` is the figure-analysis boundary for a future Document Optimizer handoff. It accepts
+one extracted image/figure reference and returns visual facts and evidence. Vision does not open,
+split, parse, retrieve, summarize, or optimize surrounding documents. Document parsing and figure
+extraction remain the document capability's responsibility.
 
-The MCP server advertises concise instructions:
+## Profiles
 
-1. When the goal is text or layout, run OCR first instead of sending the image to native vision.
-2. For before/after questions, compare the two images first and use the returned regions.
-3. When the interesting coordinates are already known, optimize that region before inspecting it.
-4. Use native LLM vision only when these tools cannot answer the question.
+`capability-profiles.json` uses exact D4 deployment contract v1 dimensions and declares:
 
-Every tool description states when to call it, when not to, its input constraints, whether it is
-deterministic or provider-backed, and how it saves image tokens. `tests/test_routing.py` contains
-table-driven positive and negative routing evaluations.
+- `local-package`: local/package/local-process/filesystem/no external provider/mutating;
+- `hybrid-azure-package`: local/package/local-process/filesystem/external provider/mutating.
 
-## Documentation
+`analyze_image` and `extract_text_and_layout` are read-only. `compare_images` is conservatively
+gated because `includeDiff` can create an artifact, and `optimize_image_region` always creates one.
+Set Platform `MUTATIONS_ENABLED=true` for those tools and retain confirmation when appropriate;
+neither tool modifies a source image, and artifacts remain principal-scoped until cleanup.
 
-- [`docs/configuration.md`](docs/configuration.md) — every setting, limit, and default
-- [`docs/providers.md`](docs/providers.md) — hybrid OCR, model provenance, licenses, fallback policy
-- [`docs/assets-and-privacy.md`](docs/assets-and-privacy.md) — data flow, retention, logging
-- [`docs/deployment.md`](docs/deployment.md) — portable Azure deployment and per-fork OIDC setup
-- [`docs/troubleshooting.md`](docs/troubleshooting.md) — common failures and deferred capabilities
-- [`docs/openapi.json`](docs/openapi.json) — generated OpenAPI 3.1 snapshot
+There is no hosted or container profile. Although Platform can assemble authenticated HTTP for an
+embedding application, this repository does not claim production-ready public ingress, workload
+authorization, provider identity, or operational controls for a hosted deployment. See
+`docs/deployment.md`.
 
 ## Validation
 
 ```bash
+npm ci
+npm run format:check
+npm run lint
+npm run typecheck
+npm run test:coverage
+npm run build
+npm run openapi:emit
+npm run metadata:validate
+npm run package:smoke
+
 ruff check .
 ruff format --check .
 mypy
-pytest                                   # fakes only: no Azure, network, or model weights
-python scripts/check_openapi.py
-docker build -t agent-tool-server-vision .
-az bicep build --file infra/main.bicep && az bicep lint --file infra/main.bicep
+pytest
 ```
 
-## Not implemented (deliberately)
+Deployment contract validation uses a built checkout of the exact Platform revision:
 
-UI mapping, diagram parsing, object detection, visual question answering, and text-region grounding
-are out of scope for this phase, and the deprecated Azure Image Analysis 4.0 API is not used. An
-Azure ML provider extension point is documented in `src/vision_server/providers/__init__.py` but is
-not implemented or provisioned.
+```bash
+AGENT_TOOL_PLATFORM_CHECKOUT=/path/to/platform-at-98ec816 npm run deployment:validate
+AGENT_TOOL_PLATFORM_CHECKOUT=/path/to/platform-at-98ec816 npm run deployment:conformance
+```
+
+The package smoke packs and installs the real npm artifact outside the repository, imports its
+public API, invokes the installed stdio executable through the packaged Python worker, checks for
+non-protocol stdout, and verifies clean shutdown. Nothing is published.
 
 ## License
 

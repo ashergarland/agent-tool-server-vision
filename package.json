@@ -1,0 +1,82 @@
+{
+  "name": "agent-tool-server-vision",
+  "version": "0.0.0-development",
+  "description": "Thin Agent Tool Platform capability backed by a Python vision and OCR worker.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "./dist/public.js",
+  "types": "./dist/public.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/public.d.ts",
+      "import": "./dist/public.js"
+    }
+  },
+  "bin": {
+    "agent-tool-vision": "dist/stdio.js"
+  },
+  "files": [
+    "dist",
+    "src/vision_server/**/*.py",
+    "pyproject.toml"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run clean",
+    "build": "tsc -p tsconfig.build.json",
+    "mcp:stdio": "node dist/stdio.js",
+    "openapi:emit": "tsx scripts/emit-openapi.ts openapi.json",
+    "metadata:validate": "agent-tool-validate-metadata --server server.json --package package.json --registry examples/central-registry-entry.json",
+    "deployment:validate": "node scripts/validate-deployment-contract.mjs",
+    "deployment:conformance": "node scripts/run-deployment-conformance.mjs",
+    "package:smoke": "node scripts/package-smoke.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ashergarland/agent-tool-server-vision.git"
+  },
+  "homepage": "https://github.com/ashergarland/agent-tool-server-vision#readme",
+  "bugs": {
+    "url": "https://github.com/ashergarland/agent-tool-server-vision/issues"
+  },
+  "keywords": [
+    "mcp",
+    "agent-tools",
+    "vision",
+    "ocr"
+  ],
+  "dependencies": {
+    "@agent-tool-platform/runtime": "0.1.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@agent-tool-platform/testkit": "0.1.2",
+    "@types/node": "22.20.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "9.39.5",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "tsx": "4.23.11",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.66.0",
+    "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

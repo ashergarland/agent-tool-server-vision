@@ -38,7 +38,7 @@ class WorkQueue:
     async def run(self, operation: Callable[[], Awaitable[T]]) -> T:
         if self._closed:
             raise VisionError(ErrorCode.BUSY, "Server is shutting down", retryable=True)
-        if self._waiting >= self._max_waiting:
+        if self._semaphore.locked() and self._waiting >= self._max_waiting:
             raise VisionError(
                 ErrorCode.BUSY,
                 "Server is at capacity; retry shortly",

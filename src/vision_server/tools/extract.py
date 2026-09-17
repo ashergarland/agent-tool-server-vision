@@ -21,6 +21,7 @@ from ..schemas import (
     ResultMeta,
     TextBlock,
 )
+from ..text_limits import truncate_utf16, utf16_length
 
 MAX_CONTENT_CHARS = 200_000
 MAX_BLOCK_CHARS = 4000
@@ -39,6 +40,9 @@ async def extract_text_and_layout(
     if truncated:
         ordered = ordered[:MAX_BLOCKS]
         warnings.append(f"block list truncated to {MAX_BLOCKS} entries")
+    if any(utf16_length(block.text) > MAX_BLOCK_CHARS for block in ordered):
+        truncated = True
+        warnings.append(f"block text truncated to {MAX_BLOCK_CHARS} UTF-16 code units")
 
     blocks = [
         _to_schema(index, block, image, payload.include_coordinates)
@@ -89,7 +93,7 @@ def _to_schema(
     return TextBlock(
         id=f"b{index:04d}",
         type=BlockType(block.block_type) if block.block_type in set(BlockType) else BlockType.LINE,
-        text=block.text[:MAX_BLOCK_CHARS],
+        text=truncate_utf16(block.text, MAX_BLOCK_CHARS),
         page=block.page,
         box=box,
         polygon=polygon,
@@ -135,6 +139,6 @@ def _format(
         content = markdown
     else:
         content = "\n".join(f"- {block.text}" for block in blocks)
-    if len(content) > MAX_CONTENT_CHARS:
-        return content[:MAX_CONTENT_CHARS], True
+    if utf16_length(content) > MAX_CONTENT_CHARS:
+        return truncate_utf16(content, MAX_CONTENT_CHARS), True
     return content, False

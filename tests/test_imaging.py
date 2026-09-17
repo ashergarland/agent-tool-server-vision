@@ -41,13 +41,18 @@ def test_rejects_symlink_escaping_the_root(settings: Settings, allowed_root: Pat
     target = allowed_root.parent / "outside.png"
     write_png(target)
     link = allowed_root / "link.png"
-    link.symlink_to(target)
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("creating symlinks requires additional privileges on this host")
     with pytest.raises(VisionError) as error:
         resolve_allowed_path(str(link), settings)
     assert error.value.code is ErrorCode.FORBIDDEN
 
 
 def test_rejects_non_regular_files(settings: Settings, allowed_root: Path) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO files are not available on this host")
     fifo = allowed_root / "pipe"
     os.mkfifo(fifo)
     with pytest.raises(VisionError) as pipe_error:
@@ -104,6 +109,11 @@ def test_byte_and_pixel_limits(settings: Settings) -> None:
     with pytest.raises(VisionError) as too_many_pixels:
         decode_image(png_bytes(200, 200), few_pixels, "local_path")
     assert too_many_pixels.value.code is ErrorCode.PAYLOAD_TOO_LARGE
+
+    with pytest.raises(VisionError) as too_wide:
+        decode_image(png_bytes(100_001, 1), settings, "local_path")
+    assert too_wide.value.code is ErrorCode.PAYLOAD_TOO_LARGE
+    assert too_wide.value.details == {"maxDimension": "100000"}
 
 
 def test_truncated_payload_is_rejected(settings: Settings) -> None:

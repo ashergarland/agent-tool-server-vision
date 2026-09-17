@@ -8,11 +8,10 @@ Model provenance (see ``docs/providers.md``):
 
 * Source: PaddleOCR PP-OCRv5 mobile detection and recognition models,
   distributed by the PaddlePaddle project.
-* Pinned revision: ``paddleocr==3.1.0`` with ``paddlepaddle==3.1.0``.
+* Pinned revision: ``paddleocr==3.7.0`` with ``paddlepaddle==3.3.1``.
 * License: Apache-2.0.
-* Checksums are published by the upstream project and verified by PaddleOCR at
-  download time; the digest of the pinned wheels is enforced by the lock in
-  ``pyproject.toml``.
+* Model checksums are published and verified by the upstream project at
+  download time; package versions are pinned in ``pyproject.toml``.
 """
 
 from __future__ import annotations
@@ -34,8 +33,8 @@ from .base import (
 
 MODEL_PROVENANCE = {
     "family": "PP-OCRv5",
-    "package": "paddleocr==3.1.0",
-    "runtime": "paddlepaddle==3.1.0",
+    "package": "paddleocr==3.7.0",
+    "runtime": "paddlepaddle==3.3.1",
     "license": "Apache-2.0",
 }
 
@@ -113,7 +112,13 @@ class PaddleOcrProvider:
             raise provider_unavailable(
                 "PaddleOCR is not installed; install the project with the 'ml' extra"
             ) from exc
-        return PaddleOCR(lang=language, use_doc_orientation_classify=False)
+        return PaddleOCR(
+            lang=language,
+            ocr_version="PP-OCRv5",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+        )
 
 
 def _parse_modern(results: Iterable[Any]) -> list[OcrBlock]:

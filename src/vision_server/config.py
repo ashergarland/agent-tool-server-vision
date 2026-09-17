@@ -6,20 +6,14 @@ repository never embeds account, tenant, or region specific defaults.
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
-from functools import cached_property
 from pathlib import Path
-from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SUPPORTED_LANGUAGES: frozenset[str] = frozenset({"en", "ch", "fr", "german", "japan", "korean"})
-
-
-class Environment(StrEnum):
-    DEVELOPMENT = "development"
-    PRODUCTION = "production"
 
 
 class ProviderMode(StrEnum):
@@ -40,20 +34,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="VISION_", env_file=".env", extra="ignore")
 
-    # Service identity
-    service_name: str = "agent-tool-server-vision"
-    service_version: str = "0.2.0"
-    environment: Environment = Environment.DEVELOPMENT
-
-    # Authentication
-    auth_enabled: bool = True
-    api_keys: str = ""
-
     # Image input limits
     allowed_roots: str = ""
     max_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
     max_image_pixels: int = Field(default=40_000_000, ge=1024, le=200_000_000)
-    max_json_bytes: int = Field(default=1_000_000, ge=1024, le=8 * 1024 * 1024)
 
     # OCR providers
     provider_mode: ProviderMode = ProviderMode.LOCAL
@@ -77,14 +61,10 @@ class Settings(BaseSettings):
 
     # Concurrency and timeouts
     max_concurrency: int = Field(default=4, ge=1, le=64)
-    max_queue_depth: int = Field(default=32, ge=1, le=1024)
+    max_queue_depth: int = Field(default=32, ge=0, le=1024)
     operation_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
     provider_timeout_seconds: float = Field(default=30.0, gt=0, le=600)
     shutdown_grace_seconds: float = Field(default=15.0, ge=0, le=120)
-
-    # Observability
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    log_payload_metadata: bool = False
 
     @field_validator("default_language")
     @classmethod
@@ -114,11 +94,6 @@ class Settings(BaseSettings):
                     "VISION_STORAGE_ACCOUNT_URL and VISION_ASSET_CONTAINER are required for "
                     "the azure_blob storage backend"
                 )
-        if self.is_production:
-            if not self.auth_enabled:
-                raise ValueError("authentication cannot be disabled in production")
-            if not self.api_key_digests:
-                raise ValueError("VISION_API_KEYS must be set in production")
         if not self.allowed_language_set <= SUPPORTED_LANGUAGES:
             raise ValueError(f"paddle_languages must be a subset of {sorted(SUPPORTED_LANGUAGES)}")
         if self.default_language not in self.allowed_language_set:
@@ -126,22 +101,8 @@ class Settings(BaseSettings):
         return self
 
     @property
-    def is_production(self) -> bool:
-        return self.environment is Environment.PRODUCTION
-
-    @property
     def allowed_language_set(self) -> frozenset[str]:
         return frozenset(_split(self.paddle_languages)) or frozenset({"en"})
-
-    @cached_property
-    def api_key_credentials(self) -> tuple[tuple[str, str], ...]:
-        from .security import digest_secret
-
-        return tuple((key, digest_secret(key)) for key in _split(self.api_keys))
-
-    @property
-    def api_key_digests(self) -> tuple[str, ...]:
-        return tuple(digest for _key, digest in self.api_key_credentials)
 
     @property
     def allowed_root_paths(self) -> tuple[Path, ...]:
@@ -158,17 +119,6 @@ class Settings(BaseSettings):
         root = self.asset_root or "./.vision-assets"
         return Path(root).expanduser().resolve()
 
-    def public_summary(self) -> dict[str, Any]:
-        """Non-sensitive configuration summary safe for readiness output."""
-        return {
-            "environment": self.environment.value,
-            "providerMode": self.provider_mode.value,
-            "storageBackend": self.storage_backend.value,
-            "authEnabled": self.auth_enabled,
-            "maxConcurrency": self.max_concurrency,
-            "assetTtlSeconds": self.asset_ttl_seconds,
-        }
-
 
 def _split(value: str, separator: str = ",") -> list[str]:
     """Split a delimited environment value, ignoring blanks."""
@@ -178,5 +128,5 @@ def _split(value: str, separator: str = ",") -> list[str]:
 
 
 def _root_separator(value: str) -> str:
-    """Allow either ``:`` (POSIX path list) or ``,`` for allowed roots."""
-    return ":" if ":" in value and "," not in value else ","
+    """Allow commas or the host path-list separator without splitting drive letters."""
+    return "," if "," in value else os.pathsep

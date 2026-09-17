@@ -4,9 +4,9 @@
 
 ## Validation
 
-- [ ] Formatting, linting, typechecking, tests/coverage, and build pass
-- [ ] Container smoke test passes
-- [ ] Bicep builds and lints
+- [ ] TypeScript and Python formatting, linting, typechecking, tests, and coverage pass
+- [ ] TypeScript build and packed-package smoke pass
+- [ ] Platform and D4/v1 profile conformance pass
 - [ ] Metadata and generated OpenAPI are valid
 - [ ] No secrets, copied deployment identifiers, or unnecessary privileges were added
-- [ ] Write tools include dry-run and confirmation guardrails
+- [ ] Worker limits, credential isolation, cancellation, and clean shutdown were reviewed

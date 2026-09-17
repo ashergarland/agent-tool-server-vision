@@ -9,5 +9,9 @@ __pycache__/
 .coverage
 coverage.xml
 dist/
+coverage/
+node_modules/
+openapi.json
+*.tgz
 
 .vision-assets/

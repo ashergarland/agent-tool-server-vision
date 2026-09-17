@@ -18,7 +18,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .config import Settings
 from .errors import ErrorCode, VisionError
-from .schemas import AssetImage, ImageReference, LocalPathImage
+from .schemas import MAX_IMAGE_AXIS, AssetImage, ImageReference, LocalPathImage
 
 _MAGIC_SIGNATURES: tuple[tuple[bytes, str], ...] = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
@@ -125,6 +125,12 @@ def decode_image(payload: bytes, settings: Settings, source_kind: str) -> Loaded
         )
     try:
         with Image.open(io.BytesIO(payload)) as probe:
+            if probe.width > MAX_IMAGE_AXIS or probe.height > MAX_IMAGE_AXIS:
+                raise VisionError(
+                    ErrorCode.PAYLOAD_TOO_LARGE,
+                    "Image exceeds the supported per-axis dimension limit",
+                    details={"maxDimension": MAX_IMAGE_AXIS},
+                )
             if probe.width * probe.height > settings.max_image_pixels:
                 raise VisionError(
                     ErrorCode.PAYLOAD_TOO_LARGE,

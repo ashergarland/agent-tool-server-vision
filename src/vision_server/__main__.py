@@ -1,6 +1,6 @@
-"""Serve the stdio MCP transport."""
+"""Run the capability-owned one-request worker."""
 
-from .main import main_stdio
+from .worker import main
 
 if __name__ == "__main__":
-    main_stdio()
+    main()

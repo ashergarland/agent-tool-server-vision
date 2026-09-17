@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:io.github.ashergarland:agent-tool-server-vision:hybrid-azure-configuration:v1",
+  "title": "Vision hybrid Azure package configuration",
+  "description": "Local filesystem worker configuration with an explicit Azure Content Understanding service principal.",
+  "type": "object",
+  "properties": {
+    "VISION_ALLOWED_ROOTS": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384
+    },
+    "VISION_PYTHON_PATH": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "VISION_PROVIDER_MODE": {
+      "const": "azure"
+    },
+    "VISION_AZURE_CONTENT_UNDERSTANDING_ENDPOINT": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "maxLength": 2048
+    },
+    "VISION_AZURE_CONTENT_UNDERSTANDING_API_VERSION": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "default": "2025-11-01"
+    },
+    "VISION_AZURE_CONTENT_UNDERSTANDING_ANALYZER": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "default": "prebuilt-documentAnalyzer"
+    },
+    "VISION_DEFAULT_LANGUAGE": {
+      "enum": ["en", "ch", "fr", "german", "japan", "korean"],
+      "default": "en"
+    },
+    "VISION_PADDLE_LANGUAGES": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "default": "en"
+    },
+    "VISION_PADDLE_CACHE_SIZE": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "default": 2
+    },
+    "AZURE_TENANT_ID": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "AZURE_CLIENT_ID": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "AZURE_CLIENT_SECRET": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "writeOnly": true
+    },
+    "VISION_MAX_IMAGE_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 67108864,
+      "default": 10485760
+    },
+    "VISION_MAX_IMAGE_PIXELS": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 200000000,
+      "default": 40000000
+    },
+    "VISION_STORAGE_BACKEND": {
+      "const": "filesystem",
+      "default": "filesystem"
+    },
+    "VISION_ASSET_ROOT": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "VISION_ASSET_TTL_SECONDS": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 604800,
+      "default": 3600
+    },
+    "VISION_ASSET_MAX_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 67108864,
+      "default": 10485760
+    },
+    "VISION_ASSET_QUOTA_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 2147483647,
+      "default": 268435456
+    },
+    "VISION_ASSET_QUOTA_COUNT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "default": 200
+    },
+    "VISION_MAX_CONCURRENCY": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16,
+      "default": 2
+    },
+    "VISION_MAX_QUEUE_DEPTH": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 128,
+      "default": 8
+    },
+    "VISION_OPERATION_TIMEOUT_SECONDS": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 600,
+      "default": 60
+    },
+    "VISION_PROVIDER_TIMEOUT_SECONDS": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 600,
+      "default": 30
+    },
+    "VISION_SHUTDOWN_GRACE_SECONDS": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 120,
+      "default": 10
+    },
+    "VISION_WORKER_TIMEOUT_MS": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 610000,
+      "default": 65000
+    },
+    "VISION_WORKER_MAX_OUTPUT_BYTES": {
+      "type": "integer",
+      "minimum": 65536,
+      "maximum": 8388608,
+      "default": 2097152
+    }
+  },
+  "required": [
+    "VISION_ALLOWED_ROOTS",
+    "VISION_PROVIDER_MODE",
+    "VISION_AZURE_CONTENT_UNDERSTANDING_ENDPOINT",
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET"
+  ],
+  "additionalProperties": false
+}
