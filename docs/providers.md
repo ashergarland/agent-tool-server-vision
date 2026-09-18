@@ -43,7 +43,9 @@ authoritative provider proof.
 `buildChildEnvironment` constructs a complete environment from scratch. It includes:
 
 - the resolved Python directory on `PATH`;
-- private temporary home/directory variables;
+- `HOME`, `USERPROFILE`, and all temporary-directory variables set to the Platform-owned scratch
+  workspace;
+- PaddleX and generic cache paths beneath that workspace;
 - bounded `VISION_*` settings;
 - `PYTHONPATH` pointing to the packaged worker;
 - only explicitly selected Azure identity variables in hybrid mode.

@@ -61,11 +61,11 @@
     "ocr"
   ],
   "dependencies": {
-    "@agent-tool-platform/runtime": "0.1.2",
+    "@agent-tool-platform/runtime": "0.1.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@agent-tool-platform/testkit": "0.1.2",
+    "@agent-tool-platform/testkit": "0.1.3",
     "@types/node": "22.20.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "9.39.5",

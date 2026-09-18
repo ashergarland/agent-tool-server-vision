@@ -13,7 +13,7 @@ fail application assembly.
 | `VISION_PYTHON_PATH`       | PATH resolution        | Optional absolute executable path; relative overrides are rejected.                                        |
 | `VISION_MAX_IMAGE_BYTES`   | `10485760`             | `1024` to `67108864`; enforced on the opened file before decode/parse.                                     |
 | `VISION_MAX_IMAGE_PIXELS`  | `40000000`             | `1024` to `200000000`; enforced before raster decode and against SVG dimensions.                           |
-| `VISION_ASSET_ROOT`        | private worker scratch | Optional absolute persistent filesystem artifact root.                                                     |
+| `VISION_ASSET_ROOT`        | Platform-owned scratch | Optional absolute persistent filesystem artifact root.                                                     |
 | `VISION_ASSET_TTL_SECONDS` | `3600`                 | `60` to seven days.                                                                                        |
 | `VISION_ASSET_MAX_BYTES`   | `10485760`             | `1024` to `67108864`.                                                                                      |
 | `VISION_ASSET_QUOTA_BYTES` | `268435456`            | Per-principal byte ceiling.                                                                                |
@@ -48,6 +48,11 @@ adapter for embedding compatibility but is not part of either declared package p
 
 Worker protocol input is independently limited to 65536 bytes and stderr to 8192 bytes. MCP tool
 schemas also bound every path, list, string, region, text block, and fact.
+
+When `VISION_ASSET_ROOT` is unset, Vision places assets and its PaddleX/generic caches beneath the
+private workspace returned by Platform `CapabilityContext.createScratchWorkspace`. Platform owns
+creation and application-lifecycle cleanup; Vision owns only the domain-specific directory layout
+and environment-variable policy.
 
 For an embedded HTTP application, keep Platform `BODY_LIMIT_BYTES`, `RATE_LIMIT_MAX`,
 `PRE_AUTH_RATE_LIMIT_MAX`, and `REQUEST_TIMEOUT_MS` bounded. A hosted operator must additionally

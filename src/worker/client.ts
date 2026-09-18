@@ -1,5 +1,3 @@
-import { chmod, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -82,7 +80,6 @@ interface PythonVisionWorkerOptions {
   readonly timeoutMs: number;
   readonly maxOutputBytes: number;
   readonly runner?: ProcessRunner;
-  readonly dispose?: () => Promise<void>;
 }
 
 interface VisionChildEnvironmentOptions {
@@ -184,7 +181,7 @@ export class PythonVisionWorker implements VisionWorker {
   }
 
   public drain(): Promise<void> {
-    this.shutdown ??= this.queue.drain().then(() => this.options.dispose?.());
+    this.shutdown ??= this.queue.drain();
     return this.shutdown;
   }
 
@@ -280,33 +277,25 @@ const resolvePython = async (override: string | undefined): Promise<string> => {
 export const createPythonVisionWorker = async (
   context: CapabilityContext<VisionConfig>,
 ): Promise<VisionWorker> => {
-  const workspacePath = await mkdtemp(join(tmpdir(), 'vision-worker-'));
-  if (process.platform !== 'win32') await chmod(workspacePath, 0o700);
-  const dispose = (): Promise<void> =>
-    rm(workspacePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
-  try {
-    const executablePath = await resolvePython(context.config.vision.pythonPath);
-    const moduleRoot = fileURLToPath(new URL('../../src', import.meta.url));
-    const assetRoot = context.config.vision.assetRoot ?? join(workspacePath, 'assets');
-    const env = buildVisionChildEnvironment({
-      executablePath,
-      workspacePath,
-      moduleRoot,
-      assetRoot,
-      workerEnvironment: context.config.vision.workerEnvironment,
-    });
-    return new PythonVisionWorker({
-      executablePath,
-      cwd: workspacePath,
-      env,
-      concurrency: context.config.vision.concurrency,
-      queueDepth: context.config.vision.queueDepth,
-      timeoutMs: context.config.vision.workerTimeoutMs,
-      maxOutputBytes: context.config.vision.maxOutputBytes,
-      dispose,
-    });
-  } catch (error) {
-    await dispose();
-    throw error;
-  }
+  const workspace = await context.createScratchWorkspace({ prefix: 'vision-worker-' });
+  const workspacePath = workspace.path;
+  const executablePath = await resolvePython(context.config.vision.pythonPath);
+  const moduleRoot = fileURLToPath(new URL('../../src', import.meta.url));
+  const assetRoot = context.config.vision.assetRoot ?? join(workspacePath, 'assets');
+  const env = buildVisionChildEnvironment({
+    executablePath,
+    workspacePath,
+    moduleRoot,
+    assetRoot,
+    workerEnvironment: context.config.vision.workerEnvironment,
+  });
+  return new PythonVisionWorker({
+    executablePath,
+    cwd: workspacePath,
+    env,
+    concurrency: context.config.vision.concurrency,
+    queueDepth: context.config.vision.queueDepth,
+    timeoutMs: context.config.vision.workerTimeoutMs,
+    maxOutputBytes: context.config.vision.maxOutputBytes,
+  });
 };

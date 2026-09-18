@@ -24,22 +24,25 @@ const result = (overrides: Partial<BoundedProcessResult> = {}): BoundedProcessRe
 
 const worker = (
   runner: (spec: BoundedProcessSpec) => Promise<BoundedProcessResult>,
-  overrides: { concurrency?: number; queueDepth?: number; dispose?: () => Promise<void> } = {},
+  overrides: {
+    concurrency?: number;
+    queueDepth?: number;
+    env?: Record<string, string>;
+  } = {},
 ) =>
   new PythonVisionWorker({
     executablePath: process.execPath,
     cwd: process.cwd(),
-    env: { PATH: process.cwd() },
+    env: overrides.env ?? { PATH: process.cwd() },
     concurrency: overrides.concurrency ?? 1,
     queueDepth: overrides.queueDepth ?? 1,
     timeoutMs: 1000,
     maxOutputBytes: 4096,
     runner,
-    ...(overrides.dispose ? { dispose: overrides.dispose } : {}),
   });
 
 describe('Python worker adapter', () => {
-  it('isolates Paddle and generic caches beneath the private workspace', () => {
+  it('passes Platform-owned home, temp, and cache paths to the child process', async () => {
     const workspacePath = join(process.cwd(), 'private-worker');
     const env = buildVisionChildEnvironment({
       executablePath: process.execPath,
@@ -48,9 +51,26 @@ describe('Python worker adapter', () => {
       assetRoot: join(workspacePath, 'assets'),
       workerEnvironment: { VISION_ALLOWED_ROOTS: process.cwd() },
     });
-    expect(env['PADDLE_PDX_CACHE_HOME']).toBe(join(workspacePath, 'paddlex-cache'));
-    expect(env['USERPROFILE']).toBe(workspacePath);
-    expect(env['XDG_CACHE_HOME']).toBe(join(workspacePath, 'cache'));
+    let captured: BoundedProcessSpec | undefined;
+    const client = worker(
+      async (spec) => {
+        captured = spec;
+        return result();
+      },
+      { env },
+    );
+    await client.invoke('analyze_image', {}, outputSchema, createTestInvocationContext());
+    expect(captured?.env).toMatchObject({
+      HOME: workspacePath,
+      USERPROFILE: workspacePath,
+      TEMP: workspacePath,
+      TMP: workspacePath,
+      TMPDIR: workspacePath,
+      PADDLE_PDX_CACHE_HOME: join(workspacePath, 'paddlex-cache'),
+      XDG_CACHE_HOME: join(workspacePath, 'cache'),
+      VISION_ASSET_ROOT: join(workspacePath, 'assets'),
+    });
+    await client.drain();
   });
 
   it('uses fixed argv, bounded execution, stdin, and validated protocol output', async () => {
@@ -119,24 +139,22 @@ describe('Python worker adapter', () => {
     await aborted.drain();
   });
 
-  it('drains queued work and disposes its private workspace exactly once', async () => {
+  it('drains queued work once and rejects new work', async () => {
     let release = (): void => undefined;
-    let disposed = 0;
     const client = worker(
       () =>
         new Promise((resolve) => {
           release = () => resolve(result());
         }),
-      { queueDepth: 0, dispose: async () => void (disposed += 1) },
+      { queueDepth: 0 },
     );
     const pending = client.invoke('analyze_image', {}, outputSchema, createTestInvocationContext());
     await Promise.resolve();
     const draining = client.drain();
+    expect(client.drain()).toBe(draining);
     release();
     await pending;
     await draining;
-    await client.drain();
-    expect(disposed).toBe(1);
     await expect(
       client.invoke('analyze_image', {}, outputSchema, createTestInvocationContext()),
     ).rejects.toMatchObject({ code: 'busy' });

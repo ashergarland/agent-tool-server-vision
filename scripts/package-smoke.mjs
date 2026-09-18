@@ -258,6 +258,17 @@ const main = async () => {
         initialized.result.serverInfo.version,
       )}, expected ${candidate.version}`,
     );
+    const liveWorkspaces = (await readdir(processTemp)).filter((name) =>
+      name.startsWith('vision-worker-'),
+    );
+    assert(
+      liveWorkspaces.length === 1,
+      `Packed entrypoint created ${liveWorkspaces.length} Vision scratch workspaces`,
+    );
+    assert(
+      (await stat(join(processTemp, liveWorkspaces[0]))).isDirectory(),
+      'Packed entrypoint scratch workspace is not a directory',
+    );
 
     const listed = await client.request('tools/list');
     const names = (listed.result?.tools ?? []).map((tool) => tool.name);
@@ -290,7 +301,7 @@ const main = async () => {
     assert(client.stderr === '', `Packed entrypoint wrote to stderr:\n${client.stderr}`);
     assert(
       !(await readdir(processTemp)).some((name) => name.startsWith('vision-worker-')),
-      'Packed entrypoint left its private worker workspace behind',
+      'Packed entrypoint left its Platform-owned worker workspace behind',
     );
 
     process.stdout.write(

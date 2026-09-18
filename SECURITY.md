@@ -23,7 +23,7 @@ The TypeScript capability uses Platform's bounded process primitive:
 - absolute pre-resolved Python executable;
 - fixed `-B -m vision_server.worker` argv and no shell;
 - complete environment built from an allow-list;
-- private temporary working directory and temporary-home variables;
+- private Platform-owned scratch working directory and temporary-home variables;
 - bounded JSON stdin, stdout, and stderr;
 - hard timeout, request cancellation, queue saturation, and deterministic termination.
 
@@ -32,10 +32,9 @@ provider credential. Hybrid mode forwards only selected Azure identity variables
 configuration. The worker never returns or logs credential values, raw SDK errors, absolute
 internal paths, or stack traces.
 
-The published Platform 0.1.2 capability context predates the scratch-workspace lifecycle helper
-present at Platform revision `98ec8162fb11d5c04aee9e6f7b3625a472a0180d`. Vision therefore owns one
-small private worker directory and removes it after its Platform-bounded queue drains. It does not
-implement a generic worker supervisor.
+Platform runtime 0.1.3 creates, confines, tracks, and removes the private worker workspace through
+`CapabilityContext.createScratchWorkspace`. Vision chooses the domain-specific asset and cache
+layout beneath it but does not implement a generic scratch lifecycle or worker supervisor.
 
 ## Input policy
 

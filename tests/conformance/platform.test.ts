@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
+import type { ScratchWorkspace } from '@agent-tool-platform/runtime';
 import {
   createAgentToolApplication,
   type AgentToolApplication,
@@ -17,6 +19,7 @@ import {
   runProcessConformance,
   runRegistryConformance,
   runRoutingConformance,
+  runScratchWorkspaceConformance,
   runTransportParity,
 } from '@agent-tool-platform/testkit';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,6 +28,7 @@ import type { VisionConfig } from '../../src/config.js';
 import { capabilityManifest } from '../../src/manifest.js';
 import { capabilityTools } from '../../src/tools/definitions.js';
 import { capabilityInstructions } from '../../src/tools/guidance.js';
+import { createPythonVisionWorker } from '../../src/worker/client.js';
 import { FakeVisionWorker, sampleAnalysis } from '../helpers/fake-worker.js';
 
 type TestApplication = AgentToolApplication<VisionConfig, VisionServices>;
@@ -54,6 +58,40 @@ const createApplication = async (start = true): Promise<TestApplication> => {
   applications.push(application);
   if (start) await application.start();
   return application;
+};
+
+const createScratchApplication = async (): Promise<{
+  application: TestApplication;
+  workspace: ScratchWorkspace;
+}> => {
+  let workspace: ScratchWorkspace | undefined;
+  const application = await createAgentToolApplication(
+    createVisionCapability((context) =>
+      createPythonVisionWorker({
+        ...context,
+        async createScratchWorkspace(options) {
+          workspace = await context.createScratchWorkspace(options);
+          return workspace;
+        },
+      }),
+    ),
+    {
+      logger: createSilentLogger(),
+      env: {
+        NODE_ENV: 'test',
+        AUTH_MODE: 'disabled',
+        VISION_ALLOWED_ROOTS: process.cwd(),
+        VISION_PYTHON_PATH: process.execPath,
+      },
+    },
+  );
+  if (workspace === undefined) {
+    throw new Error('Vision worker did not request a Platform scratch workspace');
+  }
+  if (!basename(workspace.path).startsWith('vision-worker-')) {
+    throw new Error('Vision worker requested an unexpected scratch workspace prefix');
+  }
+  return { application, workspace };
 };
 
 afterEach(async () => {
@@ -137,6 +175,16 @@ describe('Platform conformance', () => {
       (
         await runLifecycleConformance({
           createApplication: () => createApplication(false),
+        })
+      ).failures,
+    ).toEqual([]);
+  });
+
+  it('uses the Platform-owned scratch workspace lifecycle', async () => {
+    expect(
+      (
+        await runScratchWorkspaceConformance({
+          createApplication: createScratchApplication,
         })
       ).failures,
     ).toEqual([]);

@@ -23,7 +23,7 @@ Python worker
 ```
 
 The migration follows the non-TypeScript worker seam documented by the D4 template at
-`db42b31a16ba0fa41066edac331b71497b3a9c8c`. It uses Agent Tool Platform runtime/application and
+`4b5a5d93c99614a6ca64d65e10f56918c45f1472`. It uses Agent Tool Platform runtime/application and
 process mechanics from the Platform line represented by
 `98ec8162fb11d5c04aee9e6f7b3625a472a0180d`. Python remains the domain implementation; image and OCR
 behavior was not rewritten in TypeScript.
@@ -106,8 +106,10 @@ elements are interpreted.
 
 The wrapper accepts at most two active workers and eight queued calls by default. Platform process
 execution uses an absolute Python executable, fixed argv, no shell, an explicit environment, a
-private working directory, wall-clock and stdout/stderr ceilings, cancellation, and deterministic
-termination. See `docs/configuration.md` for every bound.
+private Platform-owned scratch workspace, wall-clock and stdout/stderr ceilings, cancellation, and
+deterministic termination. Vision selects the worker-local asset and cache paths; Platform owns
+workspace creation, confinement, and application-shutdown cleanup. See `docs/configuration.md` for
+every bound.
 
 ## Benchmark visual proof
 
