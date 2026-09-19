@@ -96,6 +96,6 @@ def test_annotations_describe_side_effects() -> None:
     assert TOOLS_BY_NAME["analyze_image"].annotations.destructive_hint is False
     assert TOOLS_BY_NAME["extract_text_and_layout"].annotations.destructive_hint is False
     assert TOOLS_BY_NAME["compare_images"].annotations.read_only_hint is False
-    assert TOOLS_BY_NAME["compare_images"].annotations.destructive_hint is True
+    assert TOOLS_BY_NAME["compare_images"].annotations.destructive_hint is False
     assert TOOLS_BY_NAME["compare_images"].annotations.idempotent_hint is False
-    assert TOOLS_BY_NAME["optimize_image_region"].annotations.destructive_hint is True
+    assert TOOLS_BY_NAME["optimize_image_region"].annotations.destructive_hint is False

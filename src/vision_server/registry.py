@@ -218,7 +218,7 @@ COMPARE_IMAGES = ToolDefinition(
         "Replaces sending two full images to native vision with a small numeric summary and at "
         "most a few region boxes."
     ),
-    annotations=ToolAnnotations(False, True, False, False),
+    annotations=ToolAnnotations(False, False, False, False),
     input_model=CompareImagesInput,
     output_model=CompareImagesOutput,
     handler=compare_images,
@@ -257,7 +257,7 @@ OPTIMIZE_IMAGE_REGION = ToolDefinition(
         "A cropped, downscaled artifact costs a fraction of the image tokens of the original "
         "screenshot."
     ),
-    annotations=ToolAnnotations(False, True, False, False),
+    annotations=ToolAnnotations(False, False, False, False),
     input_model=OptimizeRegionInput,
     output_model=OptimizeRegionOutput,
     handler=optimize_image_region,

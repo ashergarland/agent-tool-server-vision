@@ -245,6 +245,7 @@ const main = async () => {
     await writeFile(
       fixture,
       '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">' +
+        '<rect width="400" height="200" fill="#ffffff"/>' +
         '<text x="10" y="30">Revision state</text><text x="10" y="60">Degraded</text>' +
         '<text x="10" y="90">server_started address=127.0.0.1 port=4321</text></svg>',
     );
