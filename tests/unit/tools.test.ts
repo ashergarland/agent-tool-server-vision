@@ -78,6 +78,8 @@ describe('vision tool contracts', () => {
     expect(extractTextTool.routing.changesState).toBe(false);
     expect(compareImagesTool.routing.changesState).toBe(true);
     expect(optimizeImageTool.routing.changesState).toBe(true);
+    expect(compareImagesTool.annotations?.destructiveHint).toBe(false);
+    expect(optimizeImageTool.annotations?.destructiveHint).toBe(false);
     expect(compareImagesTool.annotations?.idempotentHint).toBe(false);
     expect(optimizeImageTool.annotations?.readOnlyHint).toBe(false);
     expect(analyzeImageTool.routing.doNotUseWhen.join(' ')).toContain('document');

@@ -80,6 +80,7 @@ describe('TypeScript to Python worker integration', () => {
     await writeFile(
       path,
       '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="100">' +
+        '<rect width="800" height="100" fill="#ffffff"/>' +
         `<text x="10" y="30">UNICODE_VALUE=${emoji.repeat(3000)}</text>` +
         '</svg>',
       'utf8',

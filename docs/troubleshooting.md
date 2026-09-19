@@ -25,7 +25,10 @@ quota are not exercised by a public readiness probe.
 
 `analyze_image` accepts local SVG only. The file must have bounded numeric width/height (or a
 four-number viewBox), remain under the byte/pixel/node/text limits, and contain no DOCTYPE or ENTITY
-declaration. Only text elements are interpreted; shape-only or open-ended visual semantics return a
+declaration. High-confidence text requires a known solid opaque background and supported paint,
+geometry, and ordering. Same-color text, later opaque overlap, nested viewports, conditional
+rendering, clipping, masking, unsupported transforms, and positioned text runs are omitted or
+degraded with bounded fallback metadata. Shape-only or other open-ended visual semantics return a
 recorded text-only/native-vision fallback. External stylesheet processing instructions are rejected.
 When an embedded stylesheet could control visibility, source text is not treated as visual evidence
 and the same explicit fallback is returned.

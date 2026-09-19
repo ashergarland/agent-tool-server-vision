@@ -306,7 +306,7 @@ export const compareImagesTool = defineTool({
   },
   annotations: {
     readOnlyHint: false,
-    destructiveHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: false,
   },
@@ -339,7 +339,7 @@ export const optimizeImageTool = defineTool({
   },
   annotations: {
     readOnlyHint: false,
-    destructiveHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: false,
   },

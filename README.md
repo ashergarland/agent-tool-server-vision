@@ -101,8 +101,10 @@ Remote URLs, storage URLs, SAS URLs, data URLs, base64 payloads, and bare string
 Local paths must be absolute, resolve beneath `VISION_ALLOWED_ROOTS`, and name regular files.
 Raster inputs are bounded by encoded bytes and decoded pixels, checked by magic bytes, and limited
 to PNG, JPEG, or WebP. `analyze_image` also accepts bounded local SVG files; document type/entity
-declarations are rejected, XML structure and extracted text are bounded, and only visible text
-elements are interpreted.
+declarations are rejected, XML structure and extracted text are bounded, and facts are promoted
+only for the supported rendering subset: solid opaque backgrounds, supported text paint and
+geometry, and no later opaque overlap. Unsupported or ambiguous rendering is omitted, lowers
+retained confidence where it could affect paint order, and sets bounded fallback metadata.
 
 The wrapper accepts at most two active workers and eight queued calls by default. Platform process
 execution uses an absolute Python executable, fixed argv, no shell, an explicit environment, a

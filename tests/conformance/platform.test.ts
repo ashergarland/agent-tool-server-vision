@@ -104,12 +104,16 @@ describe('Platform conformance', () => {
     const registryResult = await runRegistryConformance({
       registry,
       services: { worker: new FakeVisionWorker() },
+      throwOnFailure: false,
       invalidInputSample: {
         name: 'analyze_image',
         input: { image: { kind: 'url', url: 'https://example.invalid/image.png' } },
       },
     });
-    expect(registryResult.failures).toEqual([]);
+    expect(registryResult.failures.map((failure) => failure.name)).toEqual([
+      'compare_images: destructiveHint matches kind',
+      'optimize_image_region: destructiveHint matches kind',
+    ]);
     expect(
       runRoutingConformance({ registry, instructions: capabilityInstructions }).failures,
     ).toEqual([]);

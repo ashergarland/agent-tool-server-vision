@@ -14,7 +14,7 @@ import re
 import stat
 import xml.etree.ElementTree as ET
 import xml.parsers.expat as expat
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +25,12 @@ MAX_SVG_ELEMENTS = 5_000
 MAX_TEXT_BLOCKS = 500
 MAX_TEXT_CHARS = 200_000
 MAX_LINE_CHARS = 4_000
+PARTIAL_RENDERING_CONFIDENCE = 0.7
+AVERAGE_GLYPH_WIDTH_EM = 0.55
 NON_RENDERED_CONTAINERS = frozenset(
     {
         "clippath",
+        "desc",
         "defs",
         "marker",
         "mask",
@@ -37,13 +40,27 @@ NON_RENDERED_CONTAINERS = frozenset(
         "style",
         "switch",
         "symbol",
+        "title",
     }
 )
+SUPPORTED_CONTAINERS = frozenset({"a", "g"})
+NAMED_COLORS = {
+    "black": (0, 0, 0),
+    "blue": (0, 0, 255),
+    "gray": (128, 128, 128),
+    "grey": (128, 128, 128),
+    "green": (0, 128, 0),
+    "navy": (0, 0, 128),
+    "red": (255, 0, 0),
+    "white": (255, 255, 255),
+    "yellow": (255, 255, 0),
+}
 NUMBER_PATTERN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 NUMBER_RE = re.compile(NUMBER_PATTERN)
 TRANSFORM_RE = re.compile(r"([A-Za-z]+)\s*\(([^)]*)\)")
 
 Matrix = tuple[float, float, float, float, float, float]
+Color = tuple[int, int, int]
 IDENTITY_MATRIX: Matrix = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 
 
@@ -69,6 +86,64 @@ class EvidenceLine:
     text: str
     confidence: float
     box: dict[str, float] | None
+
+
+@dataclass(frozen=True)
+class _PixelBox:
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+    def intersects(self, other: _PixelBox) -> bool:
+        return (
+            self.left < other.right
+            and other.left < self.right
+            and self.top < other.bottom
+            and other.top < self.bottom
+        )
+
+    def contains(self, other: _PixelBox) -> bool:
+        return (
+            self.left <= other.left
+            and self.top <= other.top
+            and self.right >= other.right
+            and self.bottom >= other.bottom
+        )
+
+
+@dataclass(frozen=True)
+class _SolidRect:
+    box: _PixelBox
+    color: Color
+    radius_x: float
+    radius_y: float
+
+    def covers(self, other: _PixelBox) -> bool:
+        if not self.box.contains(other):
+            return False
+        if self.radius_x <= 0 or self.radius_y <= 0:
+            return True
+        return (
+            self.box.left + self.radius_x <= other.left
+            and other.right <= self.box.right - self.radius_x
+        ) or (
+            self.box.top + self.radius_y <= other.top
+            and other.bottom <= self.box.bottom - self.radius_y
+        )
+
+
+@dataclass(frozen=True)
+class _TextRun:
+    text: str
+    colors: frozenset[Color]
+
+
+@dataclass(frozen=True)
+class _TextCandidate:
+    text: str
+    box: dict[str, float]
+    pixel_box: _PixelBox
 
 
 @dataclass(frozen=True)
@@ -103,21 +178,23 @@ def analyze_svg(input_value: object) -> dict[str, object]:
     payload = _read_allowed_file(parsed["path"])
     root = _parse_svg(payload)
     width, height = _dimensions(root)
-    lines, text_truncated, stylesheet_ignored = _extract_lines(root, width, height)
+    lines, text_truncated, rendering_warnings = _extract_lines(root, width, height)
     facts, facts_truncated = extract_facts(lines, parsed["max_facts"], "embedded_svg_text")
     extracted_text = "\n".join(line.text for line in lines)
-    fallback_used = len(facts) == 0
-    warnings: list[str] = []
+    fallback_used = len(facts) == 0 or bool(rendering_warnings)
+    warnings = list(rendering_warnings)
     if text_truncated:
         warnings.append("SVG text was truncated to the configured output bounds")
-    if stylesheet_ignored:
-        warnings.append(
-            "SVG embedded text was not used because stylesheet-driven visibility is unsupported"
-        )
     if facts_truncated:
         warnings.append(f"structured facts were truncated to {parsed['max_facts']} entries")
     fallback_reason: str | None = None
-    if fallback_used:
+    if rendering_warnings:
+        fallback_reason = (
+            "SVG rendering coverage was partial; only evidence with supported visibility semantics "
+            "was promoted. Use native vision for omitted or ambiguous regions."
+        )
+        warnings.append(fallback_reason)
+    elif fallback_used:
         fallback_reason = (
             "No supported structured fact pattern was recognized; use extractedText or native "
             "vision for unsupported visual semantics."
@@ -467,39 +544,124 @@ def _extract_lines(
     root: ET.Element,
     width: int,
     height: int,
-) -> tuple[list[EvidenceLine], bool, bool]:
+) -> tuple[list[EvidenceLine], bool, tuple[str, ...]]:
     if any(_local_name(element.tag) == "style" for element in root.iter()):
-        return [], False, True
+        return (
+            [],
+            False,
+            ("SVG stylesheet-driven visibility is unsupported; embedded text was omitted",),
+        )
 
-    lines: list[EvidenceLine] = []
+    candidates: list[_TextCandidate] = []
+    backgrounds: list[_SolidRect] = []
+    rendering_warnings: list[str] = []
     total_chars = 0
     truncated = False
+    reduce_confidence = False
     initial_state = _RenderState(matrix=_viewport_matrix(root, width, height))
 
+    def warn(message: str, *, uncertain: bool) -> None:
+        nonlocal reduce_confidence
+        if message not in rendering_warnings:
+            rendering_warnings.append(message)
+        reduce_confidence = reduce_confidence or uncertain
+
     def visit(element: ET.Element, parent_state: _RenderState, *, is_root: bool = False) -> None:
-        nonlocal total_chars, truncated
+        nonlocal candidates, total_chars, truncated
         if truncated:
             return
         state = _render_state(element, parent_state)
-        if _local_name(element.tag) == "svg" and not is_root:
-            state = replace(state, matrix=None)
-        if _local_name(element.tag) != "text":
+        name = _local_name(element.tag)
+
+        if parent_state.non_rendered or state.display_hidden or state.opacity <= 0:
+            return
+        if name == "svg" and not is_root:
+            warn(
+                "Nested SVG viewport rendering is unsupported; affected evidence was omitted",
+                uncertain=True,
+            )
+            return
+        if name == "switch":
+            warn(
+                "SVG conditional rendering is unsupported; affected evidence was omitted",
+                uncertain=True,
+            )
+            return
+        if state.non_rendered:
+            return
+        if state.uncertain_visibility:
+            warn(
+                "SVG clipping, masking, filtering, or conditional visibility is unsupported; "
+                "affected evidence was omitted",
+                uncertain=True,
+            )
+            return
+        if state.matrix is None:
+            warn(
+                "Unsupported SVG transforms affected rendering; affected evidence was omitted",
+                uncertain=True,
+            )
+            return
+
+        if is_root or name in SUPPORTED_CONTAINERS:
             for child in element:
                 visit(child, state)
             return
-        if _has_independent_text_geometry(element):
+
+        if name == "rect":
+            solid_rect, ambiguous = _solid_rect(element, state, width, height)
+            if ambiguous:
+                warn(
+                    "Unsupported painted SVG geometry reduced confidence in retained evidence",
+                    uncertain=True,
+                )
+                return
+            if solid_rect is None:
+                return
+            retained: list[_TextCandidate] = []
+            for candidate in candidates:
+                if solid_rect.box.intersects(candidate.pixel_box):
+                    warn(
+                        "SVG text overlapped by later opaque geometry was omitted",
+                        uncertain=False,
+                    )
+                else:
+                    retained.append(candidate)
+            candidates = retained
+            backgrounds.append(solid_rect)
             return
-        text = _clean(_visible_text(element, state))
+
+        if name != "text":
+            if _element_may_paint(state) or any(
+                _local_name(descendant.tag) == "text" for descendant in element.iter()
+            ):
+                warn(
+                    "Unsupported painted SVG geometry reduced confidence in retained evidence",
+                    uncertain=True,
+                )
+            return
+
+        if _has_independent_text_geometry(element):
+            warn(
+                "Unsupported positioned or transformed SVG text was omitted",
+                uncertain=True,
+            )
+            return
+        runs, run_warning = _visible_text_runs(element, state)
+        if run_warning is not None:
+            warn(run_warning, uncertain=True)
+            return
+        text = _clean("".join(run.text for run in runs))
         if not text:
             return
-        if len(lines) >= MAX_TEXT_BLOCKS or total_chars >= MAX_TEXT_CHARS:
+        if len(candidates) >= MAX_TEXT_BLOCKS or total_chars >= MAX_TEXT_CHARS:
             truncated = True
             return
         available = min(MAX_LINE_CHARS, MAX_TEXT_CHARS - total_chars)
         if utf16_length(text) > available:
             text = truncate_utf16(text, available)
             truncated = True
-        box, outside_viewport = _text_box(
+        box, pixel_box, outside_viewport = _text_box(
             element,
             text,
             state.font_size,
@@ -509,19 +671,52 @@ def _extract_lines(
         )
         if outside_viewport:
             return
-        block_id = f"b{len(lines):04d}"
-        lines.append(
-            EvidenceLine(
-                block_id=block_id,
-                text=text,
-                confidence=0.99,
-                box=box,
+        if box is None or pixel_box is None:
+            warn(
+                "SVG text with unsupported geometry was omitted",
+                uncertain=True,
             )
-        )
+            return
+        background = _background_color(backgrounds, pixel_box)
+        if background is None:
+            warn(
+                "SVG text without a supported solid background was omitted",
+                uncertain=True,
+            )
+            return
+        if any(
+            all(_contrast_ratio(color, background) < 1.25 for color in run.colors) for run in runs
+        ):
+            warn(
+                "SVG text indistinguishable from its solid background was omitted",
+                uncertain=False,
+            )
+            return
+        overlapping = [
+            candidate for candidate in candidates if candidate.pixel_box.intersects(pixel_box)
+        ]
+        if overlapping:
+            candidates[:] = [candidate for candidate in candidates if candidate not in overlapping]
+            warn(
+                "Overlapping SVG text with ambiguous paint order was omitted",
+                uncertain=True,
+            )
+            return
+        candidates.append(_TextCandidate(text=text, box=box, pixel_box=pixel_box))
         total_chars += utf16_length(text) + 1
 
     visit(root, initial_state, is_root=True)
-    return lines, truncated, False
+    confidence = PARTIAL_RENDERING_CONFIDENCE if reduce_confidence else 0.99
+    lines = [
+        EvidenceLine(
+            block_id=f"b{index:04d}",
+            text=candidate.text,
+            confidence=confidence,
+            box=candidate.box,
+        )
+        for index, candidate in enumerate(candidates)
+    ]
+    return lines, truncated, tuple(rendering_warnings[:10])
 
 
 def _text_box(
@@ -531,14 +726,14 @@ def _text_box(
     matrix: Matrix | None,
     width: int,
     height: int,
-) -> tuple[dict[str, float] | None, bool]:
+) -> tuple[dict[str, float] | None, _PixelBox | None, bool]:
     x = _svg_number(element.get("x"))
     baseline = _svg_number(element.get("y"))
     if x is None or baseline is None or matrix is None:
-        return None, False
+        return None, None, False
     local_left = x
     local_top = baseline - font_size
-    local_right = x + len(text) * font_size * 0.62
+    local_right = x + len(text) * font_size * AVERAGE_GLYPH_WIDTH_EM
     local_bottom = local_top + font_size * 1.2
     points = [
         _apply_matrix(matrix, local_left, local_top),
@@ -547,17 +742,18 @@ def _text_box(
         _apply_matrix(matrix, local_right, local_bottom),
     ]
     if not all(math.isfinite(coordinate) for point in points for coordinate in point):
-        return None, False
+        return None, None, False
     left = min(point[0] for point in points)
     right = max(point[0] for point in points)
     top = min(point[1] for point in points)
     bottom = max(point[1] for point in points)
     if right <= 0 or bottom <= 0 or left >= width or top >= height:
-        return None, True
+        return None, None, True
     clipped_left = max(0.0, left)
     clipped_top = max(0.0, top)
     clipped_right = min(float(width), right)
     clipped_bottom = min(float(height), bottom)
+    pixel_box = _PixelBox(clipped_left, clipped_top, clipped_right, clipped_bottom)
     return (
         {
             "x": round(clipped_left / width, 6),
@@ -565,7 +761,240 @@ def _text_box(
             "width": round(max(0.0, clipped_right - clipped_left) / width, 6),
             "height": round(max(0.0, clipped_bottom - clipped_top) / height, 6),
         },
+        pixel_box,
         False,
+    )
+
+
+def _solid_rect(
+    element: ET.Element,
+    state: _RenderState,
+    width: int,
+    height: int,
+) -> tuple[_SolidRect | None, bool]:
+    if state.visibility in {"hidden", "collapse"}:
+        return None, False
+    if state.visibility not in {"visible", "inherit"} or state.matrix is None:
+        return None, True
+    color, ambiguous_paint = _opaque_color(
+        state.fill,
+        state.opacity * state.fill_opacity,
+    )
+    if ambiguous_paint:
+        return None, True
+    if color is None:
+        return None, _paint_active(
+            state.stroke,
+            state.opacity * state.stroke_opacity,
+        )
+
+    x = _svg_number(element.get("x", "0"))
+    y = _svg_number(element.get("y", "0"))
+    rect_width = _svg_number(element.get("width"))
+    rect_height = _svg_number(element.get("height"))
+    if (
+        x is None
+        or y is None
+        or rect_width is None
+        or rect_height is None
+        or rect_width <= 0
+        or rect_height <= 0
+    ):
+        return None, True
+
+    a, b, c, d, e, f = state.matrix
+    if not math.isclose(b, 0.0, abs_tol=1e-9) or not math.isclose(c, 0.0, abs_tol=1e-9):
+        return None, True
+    left, right = sorted((a * x + e, a * (x + rect_width) + e))
+    top, bottom = sorted((d * y + f, d * (y + rect_height) + f))
+    if right <= 0 or bottom <= 0 or left >= width or top >= height:
+        return None, False
+
+    raw_radius_x = _svg_number(element.get("rx"))
+    raw_radius_y = _svg_number(element.get("ry"))
+    if element.get("rx") is not None and raw_radius_x is None:
+        return None, True
+    if element.get("ry") is not None and raw_radius_y is None:
+        return None, True
+    radius_x = raw_radius_x if raw_radius_x is not None else (raw_radius_y or 0.0)
+    radius_y = raw_radius_y if raw_radius_y is not None else (raw_radius_x or 0.0)
+    if radius_x < 0 or radius_y < 0:
+        return None, True
+    radius_x = min(abs(a) * radius_x, (right - left) / 2)
+    radius_y = min(abs(d) * radius_y, (bottom - top) / 2)
+    return (
+        _SolidRect(
+            box=_PixelBox(
+                max(0.0, left),
+                max(0.0, top),
+                min(float(width), right),
+                min(float(height), bottom),
+            ),
+            color=color,
+            radius_x=radius_x,
+            radius_y=radius_y,
+        ),
+        False,
+    )
+
+
+def _background_color(backgrounds: list[_SolidRect], box: _PixelBox) -> Color | None:
+    color: Color | None = None
+    partially_covered = False
+    for background in backgrounds:
+        if background.covers(box):
+            color = background.color
+            partially_covered = False
+        elif background.box.intersects(box):
+            partially_covered = True
+    return None if partially_covered else color
+
+
+def _visible_text_runs(
+    element: ET.Element,
+    state: _RenderState,
+) -> tuple[list[_TextRun], str | None]:
+    if state.display_hidden or state.non_rendered or state.opacity <= 0:
+        return [], None
+    if state.uncertain_visibility:
+        return (
+            [],
+            "SVG clipping, masking, filtering, or conditional visibility is unsupported; "
+            "affected evidence was omitted",
+        )
+    if state.matrix is None:
+        return [], "Unsupported SVG transforms affected rendering; affected evidence was omitted"
+
+    colors, paint_warning = _supported_text_colors(state)
+    if paint_warning is not None:
+        return [], paint_warning
+    runs = [_TextRun(element.text, colors)] if colors and element.text else []
+    for child in element:
+        if _local_name(child.tag) != "tspan":
+            return [], "Unsupported SVG text-run semantics affected rendering; evidence was omitted"
+        child_runs, child_warning = _visible_text_runs(child, _render_state(child, state))
+        if child_warning is not None:
+            return [], child_warning
+        runs.extend(child_runs)
+        if colors and child.tail:
+            runs.append(_TextRun(child.tail, colors))
+    return runs, None
+
+
+def _supported_text_colors(state: _RenderState) -> tuple[frozenset[Color], str | None]:
+    if state.visibility in {"hidden", "collapse"} or state.font_size <= 0:
+        return frozenset(), None
+    if state.visibility not in {"visible", "inherit"}:
+        return (
+            frozenset(),
+            "Unsupported SVG visibility values affected rendering; evidence was omitted",
+        )
+
+    colors: set[Color] = set()
+    for value, opacity in (
+        (state.fill, state.opacity * state.fill_opacity),
+        (state.stroke, state.opacity * state.stroke_opacity),
+    ):
+        color, ambiguous = _opaque_color(value, opacity)
+        if ambiguous:
+            return (
+                frozenset(),
+                "Unsupported or translucent SVG text paint affected rendering; "
+                "evidence was omitted",
+            )
+        if color is not None:
+            colors.add(color)
+    return frozenset(colors), None
+
+
+def _opaque_color(value: str, opacity: float) -> tuple[Color | None, bool]:
+    normalized = value.strip().lower()
+    if opacity <= 0 or normalized in {"none", "transparent"}:
+        return None, False
+    parsed = _parse_color(normalized)
+    if parsed is None:
+        return None, True
+    color, alpha = parsed
+    effective_opacity = opacity * alpha
+    if effective_opacity <= 0:
+        return None, False
+    if not math.isclose(effective_opacity, 1.0, abs_tol=1e-9):
+        return None, True
+    return color, False
+
+
+def _parse_color(value: str) -> tuple[Color, float] | None:
+    if value in NAMED_COLORS:
+        return NAMED_COLORS[value], 1.0
+    if match := re.fullmatch(r"#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})", value):
+        digits = match.group(1)
+        if len(digits) in {3, 4}:
+            hex_channels = [int(character * 2, 16) for character in digits]
+        else:
+            hex_channels = [
+                int(digits[index : index + 2], 16) for index in range(0, len(digits), 2)
+            ]
+        alpha = hex_channels[3] / 255 if len(hex_channels) == 4 else 1.0
+        return (hex_channels[0], hex_channels[1], hex_channels[2]), alpha
+    match = re.fullmatch(r"rgba?\(([^)]*)\)", value)
+    if match is None:
+        return None
+    parts = [part.strip() for part in match.group(1).split(",")]
+    if len(parts) not in {3, 4}:
+        return None
+    red, green, blue = (_color_channel(part) for part in parts[:3])
+    if red is None or green is None or blue is None:
+        return None
+    color_alpha = _color_alpha(parts[3]) if len(parts) == 4 else 1.0
+    if color_alpha is None:
+        return None
+    return (red, green, blue), color_alpha
+
+
+def _color_channel(value: str) -> int | None:
+    try:
+        parsed = float(value[:-1]) * 2.55 if value.endswith("%") else float(value)
+    except ValueError:
+        return None
+    if not math.isfinite(parsed) or not 0 <= parsed <= 255:
+        return None
+    return round(parsed)
+
+
+def _color_alpha(value: str) -> float | None:
+    try:
+        parsed = float(value[:-1]) / 100 if value.endswith("%") else float(value)
+    except ValueError:
+        return None
+    if not math.isfinite(parsed) or not 0 <= parsed <= 1:
+        return None
+    return parsed
+
+
+def _contrast_ratio(left: Color, right: Color) -> float:
+    lighter, darker = sorted((_relative_luminance(left), _relative_luminance(right)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _relative_luminance(color: Color) -> float:
+    channels = []
+    for value in color:
+        normalized = value / 255
+        channels.append(
+            normalized / 12.92 if normalized <= 0.04045 else ((normalized + 0.055) / 1.055) ** 2.4
+        )
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _paint_active(value: str, opacity: float) -> bool:
+    return opacity > 0 and value.strip().lower() not in {"none", "transparent"}
+
+
+def _element_may_paint(state: _RenderState) -> bool:
+    if state.visibility in {"hidden", "collapse"} or state.opacity <= 0:
+        return False
+    return _paint_active(state.fill, state.opacity * state.fill_opacity) or _paint_active(
+        state.stroke, state.opacity * state.stroke_opacity
     )
 
 
@@ -654,6 +1083,12 @@ def _render_state(element: ET.Element, parent: _RenderState) -> _RenderState:
     uncertain_visibility = parent.uncertain_visibility or any(
         properties.get(name, "none").lower() != "none" for name in ("clip-path", "mask")
     )
+    uncertain_visibility = (
+        uncertain_visibility or properties.get("filter", "none").lower() != "none"
+    )
+    uncertain_visibility = (
+        uncertain_visibility or properties.get("mix-blend-mode", "normal").lower() != "normal"
+    )
     uncertain_visibility = uncertain_visibility or any(
         element.get(name) is not None
         for name in ("requiredExtensions", "requiredFeatures", "systemLanguage")
@@ -686,8 +1121,10 @@ def _style_properties(element: ET.Element) -> dict[str, str]:
         "display",
         "fill",
         "fill-opacity",
+        "filter",
         "font-size",
         "mask",
+        "mix-blend-mode",
         "opacity",
         "stroke",
         "stroke-opacity",
@@ -716,38 +1153,22 @@ def _style_properties(element: ET.Element) -> dict[str, str]:
     return properties
 
 
-def _visible_text(element: ET.Element, state: _RenderState) -> str:
-    if (
-        state.display_hidden
-        or state.non_rendered
-        or state.uncertain_visibility
-        or state.opacity <= 0
-        or state.matrix is None
-    ):
-        return ""
-    painted = _text_is_painted(state)
-    parts = [element.text or ""] if painted else []
-    for child in element:
-        child_state = _render_state(child, state)
-        parts.append(_visible_text(child, child_state))
-        if painted and child.tail:
-            parts.append(child.tail)
-    return "".join(parts)
-
-
 def _has_independent_text_geometry(element: ET.Element) -> bool:
-    if {"dx", "dy", "lengthAdjust", "rotate", "textLength"}.intersection(element.attrib):
-        return True
-    geometry_attributes = {
+    root_geometry = {
+        "dominant-baseline",
         "dx",
         "dy",
         "lengthAdjust",
+        "letter-spacing",
         "rotate",
+        "text-anchor",
         "textLength",
-        "transform",
-        "x",
-        "y",
+        "word-spacing",
+        "writing-mode",
     }
+    if root_geometry.intersection(element.attrib) or _style_declares(element, root_geometry):
+        return True
+    geometry_attributes = root_geometry | {"font-size", "transform", "x", "y"}
     for descendant in element.iter():
         if descendant is element:
             continue
@@ -755,27 +1176,18 @@ def _has_independent_text_geometry(element: ET.Element) -> bool:
             return True
         if geometry_attributes.intersection(descendant.attrib):
             return True
-        style = descendant.get("style", "").lower()
-        if re.search(r"(?:^|;)\s*transform\s*:", style):
+        if _style_declares(descendant, geometry_attributes):
             return True
     return False
 
 
-def _text_is_painted(state: _RenderState) -> bool:
-    if state.visibility not in {"visible", "inherit"} or state.font_size <= 0:
-        return False
-    return _paint_is_visible(state.fill, state.fill_opacity) or _paint_is_visible(
-        state.stroke, state.stroke_opacity
+def _style_declares(element: ET.Element, names: set[str]) -> bool:
+    style = element.get("style", "")
+    return any(
+        separator and name.strip().lower() in names
+        for declaration in style.split(";")
+        for name, separator, _value in [declaration.partition(":")]
     )
-
-
-def _paint_is_visible(value: str, opacity: float) -> bool:
-    if opacity <= 0 or value in {"none", "transparent"}:
-        return False
-    if re.fullmatch(r"#[0-9a-f]{8}", value) and value.endswith("00"):
-        return False
-    rgba = re.fullmatch(r"rgba\([^,]+,[^,]+,[^,]+,\s*([^)]+)\)", value)
-    return rgba is None or _opacity(rgba.group(1), 1.0) > 0
 
 
 def _opacity(value: str | None, fallback: float) -> float:
